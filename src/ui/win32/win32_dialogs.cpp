@@ -390,8 +390,8 @@ bool ShowCreateVmDialog(HWND parent, ManagerService& mgr, std::string* error) {
     b.AddEdit(IDC_CR_LOCATION,          ex, y-2, ew_br, rh);
     b.AddButton(IDC_CR_BR_LOC, i18n::tr(S::kDlgBtnBrowse), bx, y-2, bw, rh); y += sp + 4;
 
-    b.AddButton(IDCANCEL, i18n::tr(S::kDlgBtnCancel), W - 110, y, 48, 14);
-    b.AddDefButton(IDOK,  i18n::tr(S::kDlgBtnCreate), W - 56, y, 48, 14);
+    b.AddDefButton(IDOK,     i18n::tr(S::kDlgBtnCreate), W - 110, y, 48, 14);
+    b.AddButton(IDCANCEL,    i18n::tr(S::kDlgBtnCancel), W - 56, y, 48, 14);
 
     CreateDlgData data{&mgr, false, ""};
     DialogBoxIndirectParamA(GetModuleHandle(nullptr), b.Build(), parent,
@@ -522,8 +522,8 @@ bool ShowEditVmDialog(HWND parent, ManagerService& mgr,
     b.AddCheckBox(IDC_ED_NAT, i18n::tr(S::kDlgEnableNat), ex, y, ew, rh); y += sp;
     b.AddStatic(IDC_ED_WARN, "",       lx, y, W - 16, rh); y += sp + 4;
 
-    b.AddButton(IDCANCEL, i18n::tr(S::kDlgBtnCancel), W - 110, y, 48, 14);
-    b.AddDefButton(IDOK,  i18n::tr(S::kDlgBtnSave),  W - 56, y, 48, 14);
+    b.AddDefButton(IDOK,     i18n::tr(S::kDlgBtnSave),  W - 110, y, 48, 14);
+    b.AddButton(IDCANCEL,    i18n::tr(S::kDlgBtnCancel), W - 56, y, 48, 14);
 
     EditDlgData data{&mgr, rec, false, ""};
     DialogBoxIndirectParamA(GetModuleHandle(nullptr), b.Build(), parent,

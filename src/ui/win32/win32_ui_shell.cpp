@@ -1122,8 +1122,7 @@ Win32UiShell::Win32UiShell(ManagerService& manager)
                     ResizeWindowForDisplay(impl_.get(), width, height);
                 } else {
                     impl_->display_available = false;
-                    state.current_tab = kTabConsole;
-                    SendMessage(impl_->tab, TCM_SETCURSEL, kTabConsole, 0);
+                    // Do not auto-switch to console when display closes (e.g. screensaver)
                 }
                 LayoutControls(impl_.get());
             });

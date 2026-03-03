@@ -126,7 +126,7 @@ struct Win32UiShell::Impl {
     static constexpr UINT kResizeTimerId = 9001;
     static constexpr UINT kResizeDebounceMs = 500;
     static constexpr UINT kUpdateCheckTimerId = 9002;
-    static constexpr UINT kUpdateCheckDelayMs = 5000;
+    static constexpr UINT kUpdateCheckDelayMs = 2000;
 
     HFONT ui_font     = nullptr;
     HFONT mono_font   = nullptr;

@@ -1,8 +1,8 @@
 {
-  "latest_version": "0.1.0",
+  "latest_version": "0.2.2",
   "min_supported_version": "0.1.0",
-  "download_url": "https://tenbox.ai/downloads/TenBox-0.1.0.msi",
-  "release_notes": "Initial release",
+  "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.2.2.msi",
+  "release_notes": "增加端口转发\n修复AMD CPU虚拟化兼容性问题\n支持开关自适应大小\n修复DNS获取失败问题",
   "release_date": "2026-03-03",
   "sha256": ""
 }

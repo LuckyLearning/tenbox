@@ -39,8 +39,8 @@ import { useI18n } from 'vue-i18n'
 
 const { tm, locale } = useI18n()
 
-const downloadUrl = ref('https://tenbox.ai/downloads/TenBox-0.1.0.msi')
-const latestVersion = ref('0.1.0')
+const downloadUrl = ref('https://files.xiaozhi.me/tenbox/releases/TenBox_0.2.2.msi')
+const latestVersion = ref('0.2.2')
 
 const displayText = ref('')
 let timerId = null

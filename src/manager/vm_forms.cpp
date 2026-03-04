@@ -1,4 +1,4 @@
-#include "ui/common/vm_forms.h"
+#include "manager/vm_forms.h"
 
 namespace {
 bool SameForwards(const std::vector<PortForward>& a, const std::vector<PortForward>& b) {

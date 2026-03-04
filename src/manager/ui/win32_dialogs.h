@@ -9,9 +9,8 @@
 
 #include <string>
 
-// Modal dialogs for VM creation and editing.
+// Modal dialogs for VM editing.
 // Return true if the user confirmed and the operation succeeded.
-bool ShowCreateVmDialog(HWND parent, ManagerService& mgr, std::string* error);
 bool ShowEditVmDialog(HWND parent, ManagerService& mgr,
                       const VmRecord& rec, std::string* error);
 

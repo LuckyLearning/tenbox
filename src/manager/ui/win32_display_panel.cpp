@@ -1,6 +1,6 @@
-#include "ui/win32/win32_display_panel.h"
-#include "ui/win32/vk_to_evdev.h"
-#include "ui/common/i18n.h"
+#include "manager/ui/win32_display_panel.h"
+#include "manager/ui/vk_to_evdev.h"
+#include "manager/i18n.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cstring>

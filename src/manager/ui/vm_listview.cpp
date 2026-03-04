@@ -1,6 +1,6 @@
-#include "ui/win32/components/vm_listview.h"
+#include "manager/ui/vm_listview.h"
 #include "manager/manager_service.h"
-#include "ui/common/i18n.h"
+#include "manager/i18n.h"
 
 #include <windowsx.h>
 

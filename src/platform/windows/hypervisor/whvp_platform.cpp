@@ -1,4 +1,4 @@
-#include "hypervisor/whvp_platform.h"
+#include "platform/windows/hypervisor/whvp_platform.h"
 #include "core/vmm/types.h"
 
 namespace whvp {

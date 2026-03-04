@@ -1,5 +1,6 @@
 #include "core/vmm/vm.h"
 #include "core/arch/x86_64/boot.h"
+#include "platform/windows/hypervisor/whvp_vm.h"
 #include "platform/windows/console/std_console_port.h"
 #include <algorithm>
 
@@ -52,7 +53,7 @@ Vm::~Vm() {
     }
 
     vcpus_.clear();
-    whvp_vm_.reset();
+    hv_vm_.reset();
     if (mem_.base) {
         VirtualFree(mem_.base, 0, MEM_RELEASE);
         mem_.base = nullptr;
@@ -77,8 +78,8 @@ std::unique_ptr<Vm> Vm::Create(const VmConfig& config) {
     }
     uint64_t ram_bytes = config.memory_mb * 1024 * 1024;
 
-    vm->whvp_vm_ = whvp::WhvpVm::Create(config.cpu_count);
-    if (!vm->whvp_vm_) return nullptr;
+    vm->hv_vm_ = whvp::WhvpVm::Create(config.cpu_count);
+    if (!vm->hv_vm_) return nullptr;
 
     if (!vm->AllocateMemory(ram_bytes)) return nullptr;
 
@@ -161,19 +162,13 @@ std::unique_ptr<Vm> Vm::Create(const VmConfig& config) {
 
     vm->cpu_count_ = config.cpu_count;
     for (uint32_t i = 0; i < config.cpu_count; i++) {
-        auto vcpu = whvp::WhvpVCpu::Create(
-            *vm->whvp_vm_, i, &vm->addr_space_);
+        auto vcpu = vm->hv_vm_->CreateVCpu(i, &vm->addr_space_);
         if (!vcpu) return nullptr;
         vm->vcpus_.push_back(std::move(vcpu));
     }
 
     // Only BSP (vCPU 0) gets initial registers; APs wait for SIPI.
-    WHV_REGISTER_NAME names[64]{};
-    WHV_REGISTER_VALUE values[64]{};
-    uint32_t count = 0;
-    x86::BuildInitialRegisters(vm->mem_.base, names, values, &count);
-
-    if (!vm->vcpus_[0]->SetRegisters(names, values, count)) {
+    if (!vm->vcpus_[0]->SetupBootRegisters(vm->mem_.base)) {
         LOG_ERROR("Failed to set initial vCPU registers");
         return nullptr;
     }
@@ -201,18 +196,14 @@ bool Vm::AllocateMemory(uint64_t size) {
     mem_.high_size = (alloc > kMmioGapStart) ? (alloc - kMmioGapStart) : 0;
     mem_.high_base = mem_.high_size ? kMmioGapEnd : 0;
 
-    WHV_MAP_GPA_RANGE_FLAGS flags =
-        WHvMapGpaRangeFlagRead | WHvMapGpaRangeFlagWrite |
-        WHvMapGpaRangeFlagExecute;
-
     // Map the low region: GPA [0, low_size) -> HVA [base, base+low_size)
-    if (!whvp_vm_->MapMemory(0, base, mem_.low_size, flags))
+    if (!hv_vm_->MapMemory(0, base, mem_.low_size, /*writable=*/true))
         return false;
 
     // Map the high region above the 4 GiB boundary if present.
     if (mem_.high_size) {
-        if (!whvp_vm_->MapMemory(kMmioGapEnd, base + mem_.low_size,
-                                  mem_.high_size, flags))
+        if (!hv_vm_->MapMemory(kMmioGapEnd, base + mem_.low_size,
+                                mem_.high_size, /*writable=*/true))
             return false;
         LOG_INFO("Guest RAM: %llu MB  [0-0x%llX] + [0x%llX-0x%llX] at HVA %p",
                  alloc / (1024 * 1024),
@@ -482,18 +473,13 @@ void Vm::InjectIrq(uint8_t irq) {
     uint32_t vector = rte & 0xFF;
     if (vector == 0) return;
 
-    WHV_INTERRUPT_CONTROL ctrl{};
-    ctrl.Type = WHvX64InterruptTypeFixed;
-    ctrl.DestinationMode = ((rte >> 11) & 1)
-        ? WHvX64InterruptDestinationModeLogical
-        : WHvX64InterruptDestinationModePhysical;
-    ctrl.TriggerMode = ((rte >> 15) & 1)
-        ? WHvX64InterruptTriggerModeLevel
-        : WHvX64InterruptTriggerModeEdge;
-    ctrl.Destination = static_cast<uint32_t>(rte >> 56);
-    ctrl.Vector = vector;
+    InterruptRequest req{};
+    req.vector = vector;
+    req.destination = static_cast<uint32_t>(rte >> 56);
+    req.logical_destination = ((rte >> 11) & 1) != 0;
+    req.level_triggered = ((rte >> 15) & 1) != 0;
 
-    WHvRequestInterrupt(whvp_vm_->Handle(), &ctrl, sizeof(ctrl));
+    hv_vm_->RequestInterrupt(req);
 }
 
 void Vm::VCpuThreadFunc(uint32_t vcpu_index) {
@@ -505,19 +491,19 @@ void Vm::VCpuThreadFunc(uint32_t vcpu_index) {
         exit_count++;
 
         switch (action) {
-        case whvp::VCpuExitAction::kContinue:
+        case VCpuExitAction::kContinue:
             break;
 
-        case whvp::VCpuExitAction::kHalt:
+        case VCpuExitAction::kHalt:
             SwitchToThread();
             break;
 
-        case whvp::VCpuExitAction::kShutdown:
+        case VCpuExitAction::kShutdown:
             LOG_INFO("vCPU %u: shutdown (after %llu exits)", vcpu_index, exit_count);
             RequestStop();
             return;
 
-        case whvp::VCpuExitAction::kError:
+        case VCpuExitAction::kError:
             LOG_ERROR("vCPU %u: error (after %llu exits)", vcpu_index, exit_count);
             exit_code_.store(1);
             RequestStop();
@@ -598,8 +584,7 @@ int Vm::Run() {
 void Vm::RequestStop() {
     running_ = false;
     for (auto& vcpu : vcpus_) {
-        WHvCancelRunVirtualProcessor(
-            whvp_vm_->Handle(), vcpu->VpIndex(), 0);
+        vcpu->CancelRun();
     }
 }
 

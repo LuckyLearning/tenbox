@@ -1,11 +1,11 @@
-#include "ui/win32/win32_ui_shell.h"
-#include "ui/win32/win32_dialogs.h"
-#include "ui/win32/create_vm_dialog.h"
-#include "ui/win32/win32_display_panel.h"
-#include "ui/win32/components/info_tab.h"
-#include "ui/win32/components/console_tab.h"
-#include "ui/win32/components/vm_listview.h"
-#include "ui/common/i18n.h"
+#include "manager/ui/win32_ui_shell.h"
+#include "manager/ui/win32_dialogs.h"
+#include "manager/ui/create_vm_dialog.h"
+#include "manager/ui/win32_display_panel.h"
+#include "manager/ui/info_tab.h"
+#include "manager/ui/console_tab.h"
+#include "manager/ui/vm_listview.h"
+#include "manager/i18n.h"
 #include "manager/app_settings.h"
 #include "manager/resource.h"
 #include "manager/update_checker.h"
@@ -22,7 +22,7 @@
 #pragma comment(lib, "comctl32.lib")
 
 #include "common/ports.h"
-#include "platform/windows/audio/wasapi_audio_player.h"
+#include "manager/audio/wasapi_audio_player.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -48,6 +48,7 @@ enum CmdId : UINT {
     IDM_DELETE        = 1015,
     IDM_SHARED_FOLDERS = 1016,
     IDM_PORT_FORWARDS  = 1023,
+    IDM_CLONE          = 1024,
     IDM_VIEW_TOOLBAR           = 1017,
     IDM_VIEW_ADAPTIVE_DISPLAY  = 1018,
     IDM_WEBSITE        = 1020,
@@ -72,9 +73,8 @@ static bool g_clipboard_from_vm = false;
 
 static constexpr int kDefaultLeftPaneWidth = 280;
 
-// ── Forward declarations for dialog helpers (win32_dialogs.cpp) ──
+// ── Forward declarations for dialog helpers ──
 
-extern bool ShowCreateVmDialog(HWND parent, ManagerService& mgr, std::string* error);
 extern bool ShowEditVmDialog(HWND parent, ManagerService& mgr,
                              const VmRecord& rec, std::string* error);
 extern void ShowSharedFoldersDialog(HWND parent, ManagerService& mgr,
@@ -237,6 +237,7 @@ static HMENU BuildMenuBar(bool show_toolbar, bool adaptive_display) {
 
     HMENU vm_menu = CreatePopupMenu();
     AppendMenuA(vm_menu, MF_STRING, IDM_EDIT,     i18n::tr(S::kMenuEdit));
+    AppendMenuA(vm_menu, MF_STRING, IDM_CLONE,    i18n::tr(S::kMenuClone));
     AppendMenuA(vm_menu, MF_STRING, IDM_DELETE,   i18n::tr(S::kMenuDelete));
     AppendMenuA(vm_menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuA(vm_menu, MF_STRING, IDM_START,    i18n::tr(S::kMenuStart));
@@ -600,6 +601,7 @@ static void UpdateCommandStates(Impl* p) {
     EnableCmd(IDM_REBOOT,         has_sel && running && !stopping && ga_ok);
     EnableCmd(IDM_SHUTDOWN,       has_sel && running && !stopping && ga_ok);
     EnableCmd(IDM_EDIT,           has_sel);
+    EnableCmd(IDM_CLONE,          has_sel && !running);
     EnableCmd(IDM_DELETE,         has_sel && !running);
     EnableCmd(IDM_SHARED_FOLDERS, has_sel);
     EnableCmd(IDM_PORT_FORWARDS, has_sel);
@@ -752,9 +754,14 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             std::string error;
             bool ok = shell->manager_.StartVm(vm_id, &error);
             shell->RefreshVmList();
-            status = ok ? i18n::fmt(i18n::S::kStatusStarted, vm_id.c_str())
-                        : (std::string(i18n::tr(i18n::S::kStatusErrorPrefix)) + error);
-            SendMessageA(p->statusbar, SB_SETTEXTA, 0, reinterpret_cast<LPARAM>(status.c_str()));
+            if (ok) {
+                status = i18n::fmt(i18n::S::kStatusStarted, vm_id.c_str());
+                SendMessageA(p->statusbar, SB_SETTEXTA, 0, reinterpret_cast<LPARAM>(status.c_str()));
+            } else {
+                status = std::string(i18n::tr(i18n::S::kStatusErrorPrefix)) + error;
+                SendMessageA(p->statusbar, SB_SETTEXTA, 0, reinterpret_cast<LPARAM>(status.c_str()));
+                MessageBoxA(hwnd, error.c_str(), i18n::tr(i18n::S::kError), MB_OK | MB_ICONERROR);
+            }
             return 0;
         }
         case IDM_STOP: {
@@ -862,6 +869,26 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 auto status = i18n::fmt(i18n::S::kStatusVmUpdated, vm_name.c_str());
                 SendMessageA(p->statusbar, SB_SETTEXTA, 0, reinterpret_cast<LPARAM>(status.c_str()));
             } else if (!error.empty()) {
+                MessageBoxA(hwnd, error.c_str(), i18n::tr(i18n::S::kError), MB_OK | MB_ICONERROR);
+            }
+            return 0;
+        }
+        case IDM_CLONE: {
+            if (p->selected_index < 0 ||
+                p->selected_index >= static_cast<int>(p->records.size()))
+                break;
+            std::string vm_id   = p->records[p->selected_index].spec.vm_id;
+            std::string vm_name = p->records[p->selected_index].spec.name;
+            auto status_msg = i18n::fmt(i18n::S::kStatusVmCloning, vm_name.c_str());
+            SendMessageA(p->statusbar, SB_SETTEXTA, 0,
+                reinterpret_cast<LPARAM>(status_msg.c_str()));
+            std::string error;
+            if (shell->manager_.CloneVm(vm_id, &error)) {
+                shell->RefreshVmList();
+                auto done_msg = i18n::fmt(i18n::S::kStatusVmCloned, vm_name.c_str());
+                SendMessageA(p->statusbar, SB_SETTEXTA, 0,
+                    reinterpret_cast<LPARAM>(done_msg.c_str()));
+            } else {
                 MessageBoxA(hwnd, error.c_str(), i18n::tr(i18n::S::kError), MB_OK | MB_ICONERROR);
             }
             return 0;

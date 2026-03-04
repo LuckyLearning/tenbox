@@ -13,9 +13,8 @@ target_include_directories(tenbox-vm-runtime
 
 target_link_libraries(tenbox-vm-runtime
     PRIVATE
+        tenbox_platform
         tenbox_core
         tenbox_ipc
-        WinHvPlatform
-        WinHvEmulation
         ws2_32
 )

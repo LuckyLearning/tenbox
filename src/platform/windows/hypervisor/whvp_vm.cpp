@@ -1,4 +1,5 @@
-#include "hypervisor/whvp_vm.h"
+#include "platform/windows/hypervisor/whvp_vm.h"
+#include "platform/windows/hypervisor/whvp_vcpu.h"
 #include <intrin.h>
 
 namespace whvp {
@@ -136,8 +137,11 @@ std::unique_ptr<WhvpVm> WhvpVm::Create(uint32_t cpu_count) {
     return vm;
 }
 
-bool WhvpVm::MapMemory(GPA gpa, void* hva, uint64_t size,
-                        WHV_MAP_GPA_RANGE_FLAGS flags) {
+bool WhvpVm::MapMemory(GPA gpa, void* hva, uint64_t size, bool writable) {
+    WHV_MAP_GPA_RANGE_FLAGS flags =
+        WHvMapGpaRangeFlagRead | WHvMapGpaRangeFlagExecute;
+    if (writable) flags |= WHvMapGpaRangeFlagWrite;
+
     HRESULT hr = WHvMapGpaRange(partition_, hva, gpa, size, flags);
     if (FAILED(hr)) {
         LOG_ERROR("WHvMapGpaRange(gpa=0x%llX, size=0x%llX) failed: 0x%08lX",
@@ -154,6 +158,26 @@ bool WhvpVm::UnmapMemory(GPA gpa, uint64_t size) {
         return false;
     }
     return true;
+}
+
+std::unique_ptr<HypervisorVCpu> WhvpVm::CreateVCpu(
+    uint32_t index, AddressSpace* addr_space) {
+    return WhvpVCpu::Create(*this, index, addr_space);
+}
+
+void WhvpVm::RequestInterrupt(const InterruptRequest& req) {
+    WHV_INTERRUPT_CONTROL ctrl{};
+    ctrl.Type = WHvX64InterruptTypeFixed;
+    ctrl.DestinationMode = req.logical_destination
+        ? WHvX64InterruptDestinationModeLogical
+        : WHvX64InterruptDestinationModePhysical;
+    ctrl.TriggerMode = req.level_triggered
+        ? WHvX64InterruptTriggerModeLevel
+        : WHvX64InterruptTriggerModeEdge;
+    ctrl.Destination = req.destination;
+    ctrl.Vector = req.vector;
+
+    WHvRequestInterrupt(partition_, &ctrl, sizeof(ctrl));
 }
 
 } // namespace whvp

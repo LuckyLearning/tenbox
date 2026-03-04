@@ -1,9 +1,9 @@
 #include "manager/manager_service.h"
 #include "manager/app_settings.h"
-#include "ui/common/i18n.h"
+#include "manager/i18n.h"
 #include "version.h"
 
-#include "ui/win32/win32_ui_shell.h"
+#include "manager/ui/win32_ui_shell.h"
 using UiShell = Win32UiShell;
 
 #include <windows.h>
@@ -221,6 +221,7 @@ int main(int argc, char* argv[]) {
     std::string data_dir = settings::GetDataDir();
 
     ManagerService manager(runtime_exe, data_dir);
+    manager.set_hypervisor_available(CheckHypervisorStatus() == HvStatus::kAvailable);
 
     // Set up clipboard callbacks for VM <-> Host clipboard sharing
     manager.SetClipboardGrabCallback([&](const std::string& vm_id, const std::vector<uint32_t>& types) {

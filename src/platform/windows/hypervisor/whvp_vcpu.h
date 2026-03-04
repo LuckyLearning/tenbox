@@ -1,25 +1,22 @@
 #pragma once
 
-#include "hypervisor/whvp_vm.h"
+#include "platform/windows/hypervisor/whvp_vm.h"
 #include "core/vmm/address_space.h"
+#include "core/vmm/hypervisor_vcpu.h"
 
 namespace whvp {
 
-enum class VCpuExitAction {
-    kContinue,
-    kHalt,
-    kShutdown,
-    kError,
-};
-
-class WhvpVCpu {
+class WhvpVCpu : public HypervisorVCpu {
 public:
-    ~WhvpVCpu();
+    ~WhvpVCpu() override;
 
     static std::unique_ptr<WhvpVCpu> Create(WhvpVm& vm, uint32_t vp_index,
                                              AddressSpace* addr_space);
 
-    VCpuExitAction RunOnce();
+    VCpuExitAction RunOnce() override;
+    void CancelRun() override;
+    uint32_t Index() const override { return vp_index_; }
+    bool SetupBootRegisters(uint8_t* ram) override;
 
     bool SetRegisters(const WHV_REGISTER_NAME* names,
                       const WHV_REGISTER_VALUE* values, uint32_t count);

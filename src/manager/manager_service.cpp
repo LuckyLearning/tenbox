@@ -220,6 +220,89 @@ bool ManagerService::CreateVm(const VmCreateRequest& req, std::string* error) {
     return true;
 }
 
+bool ManagerService::CloneVm(const std::string& vm_id, std::string* error) {
+    VmSpec src_spec;
+    std::string src_dir;
+    {
+        std::lock_guard<std::mutex> lock(vms_mutex_);
+        auto* rec = FindVm(vm_id);
+        if (!rec) {
+            if (error) *error = "VM not found";
+            return false;
+        }
+        if (rec->state != VmPowerState::kStopped && rec->state != VmPowerState::kCrashed) {
+            if (error) *error = "VM must be stopped before cloning";
+            return false;
+        }
+        src_spec = rec->spec;
+        src_dir = rec->spec.vm_dir;
+    }
+
+    // Generate a unique clone name by appending an incrementing number
+    auto GenerateCloneName = [&](const std::string& base_name) -> std::string {
+        std::string stem = base_name;
+        int start_num = 2;
+        // Strip trailing number to find the real stem (e.g. "My VM 3" -> "My VM", start from 4)
+        if (!stem.empty()) {
+            auto pos = stem.find_last_not_of("0123456789");
+            if (pos != std::string::npos && pos + 1 < stem.size() && pos > 0 && stem[pos] == ' ') {
+                int existing_num = std::atoi(stem.c_str() + pos + 1);
+                if (existing_num > 0) {
+                    stem = stem.substr(0, pos);
+                    start_num = existing_num + 1;
+                }
+            }
+        }
+
+        std::lock_guard<std::mutex> lock(vms_mutex_);
+        for (int n = start_num; ; ++n) {
+            std::string candidate = stem + " " + std::to_string(n);
+            bool conflict = false;
+            for (const auto& [id, rec] : vms_) {
+                if (rec.spec.name == candidate) { conflict = true; break; }
+            }
+            if (!conflict) return candidate;
+        }
+    };
+
+    std::string new_uuid = settings::GenerateUuid();
+    std::string parent_dir = fs::path(src_dir).parent_path().string();
+    std::string new_dir = (fs::path(parent_dir) / new_uuid).string();
+
+    // Copy the entire VM directory
+    std::error_code ec;
+    fs::copy(src_dir, new_dir, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        if (error) *error = "failed to copy VM directory: " + ec.message();
+        return false;
+    }
+
+    // Load the cloned manifest and update fields
+    VmSpec new_spec;
+    if (!settings::LoadVmManifest(new_dir, new_spec)) {
+        if (error) *error = "failed to load cloned VM manifest";
+        fs::remove_all(new_dir, ec);
+        return false;
+    }
+
+    new_spec.name = GenerateCloneName(src_spec.name);
+    new_spec.creation_time = static_cast<int64_t>(
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+    new_spec.last_boot_time = 0;
+    // port_forwards would conflict on host ports, so clear them
+    new_spec.port_forwards.clear();
+
+    settings::SaveVmManifest(new_spec);
+
+    {
+        std::lock_guard<std::mutex> lock(vms_mutex_);
+        vms_.emplace(new_spec.vm_id, VmRecord{new_spec});
+        vm_order_.push_back(new_spec.vm_id);
+        SaveVmPathsLocked();
+    }
+    return true;
+}
+
 bool ManagerService::DeleteVm(const std::string& vm_id, std::string* error) {
     std::string vm_dir;
     std::thread read_thread_to_join;
@@ -342,6 +425,11 @@ bool ManagerService::EditVm(const std::string& vm_id, const VmMutablePatch& patc
 }
 
 bool ManagerService::StartVm(const std::string& vm_id, std::string* error) {
+    if (!hypervisor_available_) {
+        if (error) *error = "Windows Hypervisor Platform is not enabled";
+        return false;
+    }
+
     VmSpec spec_copy;
     std::string pipe_name;
     {

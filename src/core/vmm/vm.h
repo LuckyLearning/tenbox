@@ -2,8 +2,7 @@
 
 #include "core/vmm/types.h"
 #include "core/vmm/address_space.h"
-#include "hypervisor/whvp_vm.h"
-#include "hypervisor/whvp_vcpu.h"
+#include "core/vmm/hypervisor_vm.h"
 #include "core/device/serial/uart_16550.h"
 #include "core/device/timer/i8254_pit.h"
 #include "core/device/rtc/cmos_rtc.h"
@@ -112,8 +111,8 @@ private:
     void InjectIrq(uint8_t irq);
 
     uint32_t cpu_count_ = 1;
-    std::unique_ptr<whvp::WhvpVm> whvp_vm_;
-    std::vector<std::unique_ptr<whvp::WhvpVCpu>> vcpus_;
+    std::unique_ptr<HypervisorVm> hv_vm_;
+    std::vector<std::unique_ptr<HypervisorVCpu>> vcpus_;
     std::vector<std::thread> vcpu_threads_;
     std::atomic<int> exit_code_{0};
 

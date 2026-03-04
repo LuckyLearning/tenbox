@@ -1,4 +1,5 @@
-#include "hypervisor/whvp_vcpu.h"
+#include "platform/windows/hypervisor/whvp_vcpu.h"
+#include "core/arch/x86_64/boot.h"
 
 namespace whvp {
 
@@ -72,6 +73,123 @@ bool WhvpVCpu::GetRegisters(const WHV_REGISTER_NAME* names,
     return true;
 }
 
+void WhvpVCpu::CancelRun() {
+    WHvCancelRunVirtualProcessor(partition_, vp_index_, 0);
+}
+
+bool WhvpVCpu::SetupBootRegisters(uint8_t* ram) {
+    using x86::GdtEntry;
+    namespace Layout = x86::Layout;
+
+    // Write GDT into guest memory
+    GdtEntry* gdt = reinterpret_cast<GdtEntry*>(ram + Layout::kGdtBase);
+    gdt->null   = 0x0000000000000000ULL;
+    gdt->unused = 0x0000000000000000ULL;
+    // 32-bit code: base=0, limit=0xFFFFF, G=1 D=1 P=1 DPL=0 S=1 type=0xB
+    gdt->code32 = 0x00CF9B000000FFFFULL;
+    // 32-bit data: base=0, limit=0xFFFFF, G=1 D=1 P=1 DPL=0 S=1 type=0x3
+    gdt->data32 = 0x00CF93000000FFFFULL;
+
+    WHV_REGISTER_NAME names[64]{};
+    WHV_REGISTER_VALUE values[64]{};
+    uint32_t i = 0;
+
+    // GDTR
+    names[i] = WHvX64RegisterGdtr;
+    values[i].Table.Base = Layout::kGdtBase;
+    values[i].Table.Limit = sizeof(GdtEntry) - 1;
+    i++;
+
+    // IDTR (empty, kernel will set its own)
+    names[i] = WHvX64RegisterIdtr;
+    values[i].Table.Base = 0;
+    values[i].Table.Limit = 0;
+    i++;
+
+    // CS = selector 0x10 (code segment)
+    names[i] = WHvX64RegisterCs;
+    values[i].Segment.Base = 0;
+    values[i].Segment.Limit = 0xFFFFFFFF;
+    values[i].Segment.Selector = 0x10;
+    values[i].Segment.Attributes = 0xC09B;  // G=1 D=1 P=1 S=1 type=0xB
+    i++;
+
+    // DS, ES, SS = selector 0x18 (data segment)
+    auto SetDataSeg = [&](WHV_REGISTER_NAME name) {
+        names[i] = name;
+        values[i].Segment.Base = 0;
+        values[i].Segment.Limit = 0xFFFFFFFF;
+        values[i].Segment.Selector = 0x18;
+        values[i].Segment.Attributes = 0xC093;  // G=1 D=1 P=1 S=1 type=0x3
+        i++;
+    };
+    SetDataSeg(WHvX64RegisterDs);
+    SetDataSeg(WHvX64RegisterEs);
+    SetDataSeg(WHvX64RegisterSs);
+
+    // FS, GS with null selectors
+    auto SetNullSeg = [&](WHV_REGISTER_NAME name) {
+        names[i] = name;
+        values[i].Segment.Base = 0;
+        values[i].Segment.Limit = 0;
+        values[i].Segment.Selector = 0;
+        values[i].Segment.Attributes = 0;
+        i++;
+    };
+    SetNullSeg(WHvX64RegisterFs);
+    SetNullSeg(WHvX64RegisterGs);
+
+    // TR (task register) - must be valid for WHVP
+    names[i] = WHvX64RegisterTr;
+    values[i].Segment.Base = 0;
+    values[i].Segment.Limit = 0;
+    values[i].Segment.Selector = 0;
+    values[i].Segment.Attributes = 0x008B;  // P=1 type=busy 32-bit TSS
+    i++;
+
+    // LDTR
+    names[i] = WHvX64RegisterLdtr;
+    values[i].Segment.Base = 0;
+    values[i].Segment.Limit = 0;
+    values[i].Segment.Selector = 0;
+    values[i].Segment.Attributes = 0x0082;  // P=1 type=LDT
+    i++;
+
+    // RIP = kernel entry point
+    names[i] = WHvX64RegisterRip;
+    values[i].Reg64 = Layout::kKernelBase;
+    i++;
+
+    // RSI = pointer to boot_params
+    names[i] = WHvX64RegisterRsi;
+    values[i].Reg64 = Layout::kBootParams;
+    i++;
+
+    // RFLAGS = bit 1 always set
+    names[i] = WHvX64RegisterRflags;
+    values[i].Reg64 = 0x2;
+    i++;
+
+    // CR0 = PE (protected mode) + ET (math coprocessor)
+    names[i] = WHvX64RegisterCr0;
+    values[i].Reg64 = 0x11;
+    i++;
+
+    // Zero out general purpose registers
+    WHV_REGISTER_NAME gp_regs[] = {
+        WHvX64RegisterRax, WHvX64RegisterRbx, WHvX64RegisterRcx,
+        WHvX64RegisterRdx, WHvX64RegisterRdi, WHvX64RegisterRbp,
+        WHvX64RegisterRsp,
+    };
+    for (auto name : gp_regs) {
+        names[i] = name;
+        values[i].Reg64 = 0;
+        i++;
+    }
+
+    return SetRegisters(names, values, i);
+}
+
 VCpuExitAction WhvpVCpu::RunOnce() {
     WHV_RUN_VP_EXIT_CONTEXT exit_ctx{};
     HRESULT hr = WHvRunVirtualProcessor(
@@ -126,7 +244,7 @@ VCpuExitAction WhvpVCpu::RunOnce() {
 
     case WHvRunVpExitReasonX64Cpuid: {
         auto& cpuid = exit_ctx.CpuidAccess;
-        WHV_REGISTER_NAME names[] = {
+        WHV_REGISTER_NAME reg_names[] = {
             WHvX64RegisterRax, WHvX64RegisterRbx,
             WHvX64RegisterRcx, WHvX64RegisterRdx,
             WHvX64RegisterRip,
@@ -138,7 +256,7 @@ VCpuExitAction WhvpVCpu::RunOnce() {
         vals[3].Reg64 = cpuid.DefaultResultRdx;
         vals[4].Reg64 = exit_ctx.VpContext.Rip +
                          exit_ctx.VpContext.InstructionLength;
-        SetRegisters(names, vals, 5);
+        SetRegisters(reg_names, vals, 5);
         return VCpuExitAction::kContinue;
     }
 
@@ -150,14 +268,14 @@ VCpuExitAction WhvpVCpu::RunOnce() {
                         exit_ctx.VpContext.InstructionLength;
 
         if (!msr.AccessInfo.IsWrite) {
-            WHV_REGISTER_NAME names[] = {
+            WHV_REGISTER_NAME reg_names[] = {
                 WHvX64RegisterRax, WHvX64RegisterRdx, WHvX64RegisterRip
             };
             WHV_REGISTER_VALUE vals[3]{};
             vals[0].Reg64 = 0;
             vals[1].Reg64 = 0;
             vals[2] = rip_val;
-            SetRegisters(names, vals, 3);
+            SetRegisters(reg_names, vals, 3);
             LOG_DEBUG("MSR read: 0x%X -> 0", msr.MsrNumber);
         } else {
             LOG_DEBUG("MSR write: 0x%X = 0x%llX", msr.MsrNumber,

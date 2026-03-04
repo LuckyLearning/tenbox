@@ -1,9 +1,6 @@
 set(TENBOX_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/vmm/vm.cpp
     ${CMAKE_SOURCE_DIR}/src/core/vmm/address_space.cpp
-    ${CMAKE_SOURCE_DIR}/src/hypervisor/whvp_platform.cpp
-    ${CMAKE_SOURCE_DIR}/src/hypervisor/whvp_vm.cpp
-    ${CMAKE_SOURCE_DIR}/src/hypervisor/whvp_vcpu.cpp
     ${CMAKE_SOURCE_DIR}/src/core/arch/x86_64/boot.cpp
     ${CMAKE_SOURCE_DIR}/src/core/device/serial/uart_16550.cpp
     ${CMAKE_SOURCE_DIR}/src/core/device/timer/i8254_pit.cpp
@@ -26,7 +23,6 @@ set(TENBOX_CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/vdagent/vdagent_handler.cpp
     ${CMAKE_SOURCE_DIR}/src/core/guest_agent/guest_agent_handler.cpp
     ${CMAKE_SOURCE_DIR}/src/core/net/net_backend.cpp
-    ${CMAKE_SOURCE_DIR}/src/platform/windows/console/std_console_port.cpp
 )
 
 add_library(tenbox_core STATIC ${TENBOX_CORE_SOURCES})

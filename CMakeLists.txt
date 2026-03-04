@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 cmake_policy(SET CMP0091 NEW)
-project(TenBox VERSION 0.2.2 LANGUAGES C CXX)
+project(TenBox VERSION 0.2.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -84,8 +84,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(json)
 
 add_subdirectory(src/core)
+add_subdirectory(src/platform)
 add_subdirectory(src/ipc)
-add_subdirectory(src/ui/win32)
 add_subdirectory(src/runtime)
 add_subdirectory(src/manager)
 add_subdirectory(tests)

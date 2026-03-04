@@ -1,8 +1,6 @@
 #pragma once
 
 #include "core/vmm/types.h"
-#include <windows.h>
-#include <WinHvPlatform.h>
 #include "core/arch/x86_64/acpi.h"
 #include <string>
 #include <vector>
@@ -78,13 +76,5 @@ struct GdtEntry {
     uint64_t code32;    // selector 0x10 - 32-bit code, flat
     uint64_t data32;    // selector 0x18 - 32-bit data, flat
 };
-
-// Write GDT and return initial register values for 32-bit protected mode boot.
-// Caller should pass these to WhvpVCpu::SetRegisters.
-void BuildInitialRegisters(
-    uint8_t* ram,
-    WHV_REGISTER_NAME* out_names,
-    WHV_REGISTER_VALUE* out_values,
-    uint32_t* out_count);
 
 } // namespace x86

@@ -1,6 +1,6 @@
-#include "ui/win32/dialogs/port_forward_dialog.h"
+#include "manager/ui/port_forward_dialog.h"
 #include "manager/manager_service.h"
-#include "ui/common/i18n.h"
+#include "manager/i18n.h"
 
 #include <commctrl.h>
 #include <vector>

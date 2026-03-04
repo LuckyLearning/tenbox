@@ -183,6 +183,9 @@ enum class S {
     kPfDuplicatePort,
     kToolbarPortForwards,
     kMenuPortForwards,
+    kMenuClone,
+    kStatusVmCloned,
+    kStatusVmCloning,
     kPfBindErrorTitle,
     kPfBindErrorMsg,
 

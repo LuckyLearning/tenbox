@@ -86,6 +86,7 @@ public:
     ~ManagerService();
 
     bool CreateVm(const VmCreateRequest& req, std::string* error);
+    bool CloneVm(const std::string& vm_id, std::string* error);
     bool DeleteVm(const std::string& vm_id, std::string* error);
     bool EditVm(const std::string& vm_id, const VmMutablePatch& patch, std::string* error);
     bool StartVm(const std::string& vm_id, std::string* error);
@@ -97,6 +98,9 @@ public:
     std::vector<VmRecord> ListVms() const;
     std::optional<VmRecord> GetVm(const std::string& vm_id) const;
     void ReorderVm(int from, int to);
+
+    void set_hypervisor_available(bool available) { hypervisor_available_ = available; }
+    bool hypervisor_available() const { return hypervisor_available_; }
 
     const std::string& data_dir() const { return data_dir_; }
     settings::AppSettings& app_settings() { return settings_; }
@@ -209,5 +213,6 @@ private:
     AudioPcmCallback audio_pcm_callback_;
     GuestAgentStateCallback guest_agent_state_callback_;
     PortForwardErrorCallback port_forward_error_callback_;
+    bool hypervisor_available_ = true;
     void* job_object_ = nullptr;
 };

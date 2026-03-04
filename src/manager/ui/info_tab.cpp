@@ -1,6 +1,6 @@
-#include "ui/win32/components/info_tab.h"
+#include "manager/ui/info_tab.h"
 #include "common/vm_model.h"
-#include "ui/common/i18n.h"
+#include "manager/i18n.h"
 
 #include <cstring>
 #include <ctime>

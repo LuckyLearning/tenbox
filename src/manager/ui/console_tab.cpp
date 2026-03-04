@@ -1,5 +1,5 @@
-#include "ui/win32/components/console_tab.h"
-#include "ui/common/i18n.h"
+#include "manager/ui/console_tab.h"
+#include "manager/i18n.h"
 
 #include <commctrl.h>
 

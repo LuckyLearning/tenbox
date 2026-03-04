@@ -84,16 +84,17 @@ TenBox uses a two-process design. The manager process owns the UI and spawns a s
 ┌──────────────────────────────────────────────────────────────────┐
 │  tenbox-manager.exe                                              │
 │                                                                  │
-│  Win32 GUI                                                       │
+│  Win32 GUI (manager/ui/)                                         │
 │  ├─ VM list, toolbar, system tray                                │
 │  ├─ Display window (virtio-gpu frames via IPC)                   │
 │  ├─ Console tab (serial I/O via IPC)                             │
 │  ├─ Clipboard bridge (host ↔ vdagent)                           │
-│  └─ WASAPI audio player                                          │
+│  ├─ WASAPI audio player                                          │
+│  └─ VM management, settings, HTTP download, update checker       │
 │                  │ Named Pipe (IPC protocol v1)                  │
 │                  ▼                                               │
 │  tenbox-vm-runtime.exe  [one per running VM]                     │
-│  ├─ WHVP VM + vCPUs                                              │
+│  ├─ WHVP VM + vCPUs  (platform/windows/hypervisor/)              │
 │  ├─ Address space (PIO / MMIO)                                   │
 │  ├─ Devices: UART · PIT · RTC · IOAPIC · PIC · ACPI · PCI       │
 │  ├─ VirtIO MMIO: blk · net · gpu · input · serial · snd · fs    │
@@ -108,7 +109,7 @@ TenBox uses a two-process design. The manager process owns the UI and spawns a s
 ```
 src/
 ├── common/              # Shared types: VmSpec, PortForward, SharedFolder
-├── core/                # VM engine (hypervisor-agnostic)
+├── core/                # VM engine
 │   ├── arch/x86_64/     # Linux boot protocol, ACPI tables
 │   ├── device/
 │   │   ├── serial/      # UART 16550
@@ -121,20 +122,19 @@ src/
 │   ├── guest_agent/     # qemu-guest-agent protocol handler
 │   ├── net/             # lwIP NAT backend
 │   ├── vdagent/         # SPICE vdagent (clipboard protocol)
-│   └── vmm/             # VM orchestration & address space
-├── hypervisor/          # WHVP platform interface
+│   └── vmm/             # VM orchestration, address space & hypervisor interface
+│       ├── hypervisor_vm.h    # Abstract HypervisorVm interface
+│       └── hypervisor_vcpu.h  # Abstract HypervisorVCpu interface
+├── platform/            # OS-specific implementations
+│   └── windows/
+│       ├── hypervisor/  # WHVP (Windows Hypervisor Platform)
+│       └── console/     # StdConsolePort (Win32 console I/O)
 ├── ipc/                 # Named pipe protocol (manager ↔ runtime)
 ├── manager/             # GUI manager application
-├── platform/            # Windows platform backends
-│   ├── tray/            # System tray integration
-│   └── windows/
-│       ├── audio/       # WASAPI audio output
-│       └── console/     # Console I/O
-├── runtime/             # VM runtime process entry point & CLI
-└── ui/
-    ├── common/          # i18n helpers
-    └── win32/           # Win32 display window, dialogs, components
-        └── components/  # VM list, console tab, info tab
+│   ├── ui/              # Win32 GUI: shell, display, dialogs, tabs, WASAPI audio
+│   │   └── audio/       # WASAPI audio player
+│   └── (business logic) # i18n, VM forms, settings, HTTP download, update checker
+└── runtime/             # VM runtime process entry point & CLI
 scripts/
 ├── get-kernel.sh        # Extract vmlinuz from a Debian package
 ├── make-initramfs.sh    # Build BusyBox initramfs with kernel modules

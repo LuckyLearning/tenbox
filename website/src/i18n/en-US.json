@@ -17,7 +17,9 @@
     "version": "v0.1.0",
     "requirements": "Windows 10 (1803)+",
     "macos": "macOS version in development",
-    "notice": "⚠️ Code signing certificate pending — installer may show an unknown publisher warning"
+    "notice": "⚠️ Code signing certificate pending — installer may show an unknown publisher warning",
+    "qq_group": "QQ Help Group",
+    "qq_group_number": "295838092"
   },
   "features": {
     "title": "Features",

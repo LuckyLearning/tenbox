@@ -29,6 +29,7 @@
         </div>
         <p class="hero-meta">v{{ latestVersion }} · {{ $t('hero.requirements') }} · {{ $t('hero.macos') }}</p>
         <p class="hero-notice">{{ $t('hero.notice') }}</p>
+        <p class="hero-qq">{{ $t('hero.qq_group') }}：{{ $t('hero.qq_group_number') }}</p>
       </div>
     </div>
   </section>
@@ -221,6 +222,12 @@ watch(locale, () => {
 .hero-actions {
   display: flex;
   gap: 16px;
+}
+
+.hero-qq {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: rgba(6, 182, 212, 0.85);
 }
 
 .hero-meta {

@@ -28,9 +28,9 @@
     },
     {
       "id": "copaw",
-      "version": "0.0.5b",
-      "name": "XFCE + CoPaw 0.0.5b2 (1.14 GB)",
-      "description": "一个基于 Debian 12 的 XFCE 桌面环境，预装了 CoPaw 0.0.5b2 和 Chromium 浏览器。",
+      "version": "0.0.5",
+      "name": "XFCE + CoPaw 0.0.5 (1.17 GB)",
+      "description": "一个基于 Debian 12 的 XFCE 桌面环境，预装了 CoPaw 0.0.5 和 Chromium 浏览器。",
       "min_app_version": "0.1.0",
       "os": "linux",
       "arch": "microvm",
@@ -47,7 +47,7 @@
         },
         {
           "name": "rootfs.qcow2",
-          "url": "https://files.xiaozhi.me/tenbox/images/copaw/rootfs-copaw-0.0.5b2.qcow2",
+          "url": "https://files.xiaozhi.me/tenbox/images/copaw/rootfs-copaw-0.0.5.qcow2",
           "sha256": ""
         }
       ]

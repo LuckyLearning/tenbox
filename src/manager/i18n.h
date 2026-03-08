@@ -224,6 +224,8 @@ enum class S {
     kImgCacheDeleted,
     kImgCacheDeleteFailed,
     kImgEta,
+    kImgBtnLocalImage,
+    kImgLocalNoFiles,
 
     // Auto-update
     kUpdateAvailableTitle,

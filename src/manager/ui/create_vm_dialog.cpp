@@ -59,6 +59,7 @@ enum {
     IDC_BTN_NEXT = 116,
     IDC_BTN_RETRY = 117,
     IDC_BTN_DELETE_CACHE = 118,
+    IDC_BTN_LOCAL_IMAGE = 121,
 };
 
 enum class Page {
@@ -95,6 +96,8 @@ struct DialogData {
 
     int selected_index;
     image_source::ImageEntry selected_image;
+    bool is_local_image;
+    std::string local_image_dir;
 
     std::atomic<bool> cancel_download;
     std::atomic<bool> download_running;
@@ -117,7 +120,8 @@ struct DialogData {
                    created(false), closed(false),
                    sources_loaded(false), loading_sources(false), selected_source_index(-1),
                    online_loaded(false), loading_online(false),
-                   selected_index(-1), cancel_download(false), download_running(false),
+                   selected_index(-1), is_local_image(false),
+                   cancel_download(false), download_running(false),
                    current_file_index(0), total_files(0),
                    current_downloaded(0), current_total(0),
                    last_progress_ui_tick(0), last_progress_ui_file_index(-1),
@@ -232,6 +236,7 @@ static void ShowPage(DialogData* data, Page page) {
 
     HWND btn_back = GetDlgItem(dlg, IDC_BTN_BACK);
     HWND btn_next = GetDlgItem(dlg, IDC_BTN_NEXT);
+    HWND btn_local = GetDlgItem(dlg, IDC_BTN_LOCAL_IMAGE);
 
     switch (page) {
     case Page::kSelectImage:
@@ -245,6 +250,7 @@ static void ShowPage(DialogData* data, Page page) {
         SetWindowTextW(btn_next, i18n::tr_w(i18n::S::kImgBtnNext).c_str());
         EnableWindow(btn_next, data->selected_index >= 0);
         ShowWindow(btn_next, SW_SHOW);
+        ShowWindow(btn_local, SW_SHOW);
         ShowWindow(btn_back, SW_HIDE);
         RefreshImageList(data);
         UpdateDescriptionText(data);
@@ -253,6 +259,7 @@ static void ShowPage(DialogData* data, Page page) {
     case Page::kDownloading:
         SetControlsVisible(dlg, download_ctrls, 2, true);
         ShowWindow(btn_next, SW_HIDE);
+        ShowWindow(btn_local, SW_HIDE);
         ShowWindow(btn_back, SW_HIDE);
         SendMessage(GetDlgItem(dlg, IDC_PROGRESS), PBM_SETPOS, 0, 0);
         SetDlgItemTextW(dlg, IDC_PROGRESS_TEXT, i18n::tr_w(i18n::S::kImgDownloading).c_str());
@@ -263,6 +270,7 @@ static void ShowPage(DialogData* data, Page page) {
         SetWindowTextW(btn_next, i18n::tr_w(i18n::S::kDlgBtnCreate).c_str());
         EnableWindow(btn_next, TRUE);
         ShowWindow(btn_next, SW_SHOW);
+        ShowWindow(btn_local, SW_HIDE);
         ShowWindow(btn_back, SW_SHOW);
         SetWindowTextW(btn_back, i18n::tr_w(i18n::S::kImgBtnBack).c_str());
 
@@ -780,6 +788,59 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
             return 0;
         }
 
+        case IDC_BTN_LOCAL_IMAGE: {
+            std::string folder = BrowseForFolder(dlg, i18n::tr(i18n::S::kImgBtnLocalImage), nullptr);
+            if (folder.empty()) return 0;
+
+            fs::path dir_path(folder);
+            std::string kernel, initrd, disk;
+            for (const auto& entry : fs::directory_iterator(dir_path)) {
+                if (!entry.is_regular_file()) continue;
+                std::string name = entry.path().filename().string();
+                if (name == "vmlinuz" || name.find("vmlinuz") == 0) {
+                    kernel = name;
+                } else if (name.find("initrd") == 0 || name.find("initramfs") == 0 ||
+                           (name.size() > 3 && name.substr(name.size() - 3) == ".gz" && kernel.empty() == false)) {
+                    if (initrd.empty()) initrd = name;
+                } else if (name.size() > 6 && name.substr(name.size() - 6) == ".qcow2") {
+                    disk = name;
+                }
+            }
+            // Also pick up *.gz files that look like initrd even without a kernel match
+            if (initrd.empty()) {
+                for (const auto& entry : fs::directory_iterator(dir_path)) {
+                    if (!entry.is_regular_file()) continue;
+                    std::string name = entry.path().filename().string();
+                    if (name.size() > 3 && name.substr(name.size() - 3) == ".gz") {
+                        initrd = name;
+                        break;
+                    }
+                }
+            }
+
+            if (disk.empty() && kernel.empty()) {
+                MessageBoxW(dlg, i18n::tr_w(i18n::S::kImgLocalNoFiles).c_str(),
+                    i18n::tr_w(i18n::S::kError).c_str(), MB_OK | MB_ICONWARNING);
+                return 0;
+            }
+
+            image_source::ImageEntry local_img;
+            local_img.id = dir_path.filename().string();
+            local_img.display_name = local_img.id;
+            if (!kernel.empty())
+                local_img.files.push_back({kernel, {}, {}});
+            if (!initrd.empty())
+                local_img.files.push_back({initrd, {}, {}});
+            if (!disk.empty())
+                local_img.files.push_back({disk, {}, {}});
+
+            data->selected_image = local_img;
+            data->is_local_image = true;
+            data->local_image_dir = folder;
+            ShowPage(data, Page::kConfirm);
+            return 0;
+        }
+
         case IDC_BTN_RETRY:
             data->download_error.clear();
             if (!data->sources_loaded) {
@@ -794,6 +855,8 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
 
         case IDC_BTN_BACK:
             if (data->current_page == Page::kConfirm) {
+                data->is_local_image = false;
+                data->local_image_dir.clear();
                 ShowPage(data, Page::kSelectImage);
             }
             return 0;
@@ -843,8 +906,9 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
                 if (mem_gb < 1) mem_gb = kDefaultMemoryGb;
                 if (cpu_count < 1) cpu_count = kDefaultVcpus;
 
-                std::string cache_dir = image_source::ImageCacheDir(
-                    data->ImagesDir(), data->selected_image);
+                std::string cache_dir = data->is_local_image
+                    ? data->local_image_dir
+                    : image_source::ImageCacheDir(data->ImagesDir(), data->selected_image);
 
                 VmCreateRequest req;
                 req.name = req_name;
@@ -1065,7 +1129,7 @@ bool ShowCreateVmDialog2(HWND parent, ManagerService& mgr, std::string* error) {
 
     int btn_gap = scale_px(10);
     int secondary_btn_w = scale_px(130);
-    int back_x = w - margin - 2 * btn_w - btn_gap;
+    int back_x = w - margin - 3 * btn_w - 2 * btn_gap;
     int delete_max_w = back_x - margin - btn_gap;
     if (secondary_btn_w > delete_max_w) secondary_btn_w = delete_max_w;
     if (secondary_btn_w < scale_px(90)) secondary_btn_w = scale_px(90);
@@ -1080,8 +1144,12 @@ bool ShowCreateVmDialog2(HWND parent, ManagerService& mgr, std::string* error) {
         dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_BTN_RETRY)), nullptr, nullptr);
 
     CreateWindowExW(0, L"BUTTON", i18n::tr_w(i18n::S::kImgBtnBack).c_str(),
-        WS_CHILD | BS_PUSHBUTTON, w - margin - 2 * btn_w - btn_gap, bottom_btns_y, btn_w, btn_h,
+        WS_CHILD | BS_PUSHBUTTON, w - margin - 3 * btn_w - 2 * btn_gap, bottom_btns_y, btn_w, btn_h,
         dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_BTN_BACK)), nullptr, nullptr);
+
+    CreateWindowExW(0, L"BUTTON", i18n::tr_w(i18n::S::kImgBtnLocalImage).c_str(),
+        WS_CHILD | BS_PUSHBUTTON, w - margin - 2 * btn_w - btn_gap, bottom_btns_y, btn_w, btn_h,
+        dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_BTN_LOCAL_IMAGE)), nullptr, nullptr);
 
     CreateWindowExW(0, L"BUTTON", i18n::tr_w(i18n::S::kImgBtnNext).c_str(),
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, w - margin - btn_w, bottom_btns_y, btn_w, btn_h,

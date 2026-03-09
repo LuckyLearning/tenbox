@@ -19,7 +19,7 @@
         },
         {
           "name": "initrd.gz",
-          "url": "https://files.xiaozhi.me/tenbox/images/openclaw/initramfs.cpio.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/openclaw/initramfs.cpio-2026.3.9.gz",
           "sha256": "845615d7dee1f4644426ec03ccc600e248ad89a88e87bb89044f756aa7ddfb7a",
           "size": 3217469
         },
@@ -50,7 +50,7 @@
         },
         {
           "name": "initrd.gz",
-          "url": "https://files.xiaozhi.me/tenbox/images/copaw/initramfs.cpio.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/copaw/initramfs.cpio-2026.3.9.gz",
           "sha256": "845615d7dee1f4644426ec03ccc600e248ad89a88e87bb89044f756aa7ddfb7a",
           "size": 3217469
         },
@@ -81,7 +81,7 @@
         },
         {
           "name": "initrd.gz",
-          "url": "https://files.xiaozhi.me/tenbox/images/chromium/initramfs.cpio.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/chromium/initramfs.cpio-2026.3.9.gz",
           "sha256": "845615d7dee1f4644426ec03ccc600e248ad89a88e87bb89044f756aa7ddfb7a",
           "size": 3217469
         },

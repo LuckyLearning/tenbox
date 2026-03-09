@@ -14,6 +14,7 @@ out/
 *.msi
 *.pyc
 .env
+.signing_sha1
 images/
 scripts/.signing_sha1
 CMakePresets.json

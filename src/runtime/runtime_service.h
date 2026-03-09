@@ -1,7 +1,9 @@
 #pragma once
 
 #include "common/ports.h"
+#include "ipc/ipc_transport.h"
 #include "ipc/protocol_v1.h"
+#include "ipc/shared_framebuffer.h"
 
 #include <atomic>
 #include <chrono>
@@ -127,9 +129,9 @@ private:
     std::thread send_thread_;
     std::thread recv_thread_;
 
-    // Protects pipe_handle_ and low-level WriteFile operations.
+    // Protects transport writes.
     std::mutex send_mutex_;
-    void* pipe_handle_ = nullptr;
+    std::unique_ptr<ipc::IpcTransport> transport_;
     Vm* vm_ = nullptr;
     std::atomic<uint64_t> next_event_id_{1};
 
@@ -139,10 +141,17 @@ private:
     std::condition_variable send_cv_;
     std::deque<std::string> console_queue_;
 
-    // Bounded queue for display frames. Preserves dirty-rect ordering
-    // but caps memory usage.
-    static constexpr size_t kMaxPendingFrames = 8;
+    // Shared-memory framebuffer for zero-copy frame transport.
+    ipc::SharedFramebuffer shm_fb_;
+    uint64_t shm_frame_seq_ = 0;
+    uint32_t shm_generation_ = 0;
+    bool shm_init_sent_ = false;
+
+    // Legacy frame queue (fallback when shm is unavailable).
+    static constexpr size_t kMaxPendingFrames = 4;
     std::deque<std::string> frame_queue_;
+    uint64_t frame_drop_count_ = 0;
+    std::chrono::steady_clock::time_point last_frame_drop_log_{};
 
     // Bounded queue for audio PCM chunks.
     static constexpr size_t kMaxPendingAudio = 32;

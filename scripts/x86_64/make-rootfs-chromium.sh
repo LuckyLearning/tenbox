@@ -1,28 +1,28 @@
 #!/bin/bash
-# Build a Debian base rootfs as qcow2 for TenBox Phase 2.
+# Build a minimal Debian desktop rootfs as qcow2 for TenBox.
+# XFCE desktop with Chromium browser and basic tools.
 # Requires: debootstrap, qemu-utils. Run as root in WSL2 or Linux.
 #
 # Features:
 #   - Checkpoint system: resume from last successful step after failure
 #   - APT cache: reuse downloaded packages across runs
-#   - External script cache: NodeSource, OpenClaw install scripts
 #
 # Usage:
-#   ./make-rootfs.sh [output.qcow2]           # Normal run (resume if interrupted)
-#   ./make-rootfs.sh --force [output.qcow2]   # Force rebuild from scratch
-#   ./make-rootfs.sh --from-step N            # Resume from step N
-#   ./make-rootfs.sh --list-steps             # Show all steps
-#   ./make-rootfs.sh --status                 # Show current progress
+#   ./make-rootfs-chromium.sh [output.qcow2]           # Normal run (resume if interrupted)
+#   ./make-rootfs-chromium.sh --force [output.qcow2]   # Force rebuild from scratch
+#   ./make-rootfs-chromium.sh --from-step N            # Resume from step N
+#   ./make-rootfs-chromium.sh --list-steps             # Show all steps
+#   ./make-rootfs-chromium.sh --status                 # Show current progress
 
 set -e
 
 ROOTFS_SIZE="20G"
 SUITE="bookworm"
-MIRROR="https://mirrors.ustc.edu.cn/debian"
-MIRROR_SECURITY="https://mirrors.ustc.edu.cn/debian-security"
+MIRROR="http://deb.debian.org/debian"
+MIRROR_SECURITY="http://deb.debian.org/debian-security"
 ROOT_PASSWORD="${ROOT_PASSWORD:-tenbox}"
-USER_NAME="${USER_NAME:-terrence}"
-USER_PASSWORD="${USER_PASSWORD:-terrence}"
+USER_NAME="${USER_NAME:-tenbox}"
+USER_PASSWORD="${USER_PASSWORD:-tenbox}"
 INCLUDE_PKGS="systemd-sysv,udev,dbus,sudo,\
 iproute2,iputils-ping,ifupdown,isc-dhcp-client,\
 ca-certificates,curl,wget,\
@@ -35,23 +35,19 @@ kmod,pciutils,usbutils,\
 coreutils,findutils,grep,gawk,sed,tar,gzip,bzip2,xz-utils"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/../build"
-mkdir -p "$BUILD_DIR"
+BUILD_DIR="$(mkdir -p "$SCRIPT_DIR/../../build" && cd "$SCRIPT_DIR/../../build" && pwd)"
 
 # Cache directories
 CACHE_DIR="$BUILD_DIR/.rootfs-cache"
-CHECKPOINT_DIR="$CACHE_DIR/checkpoints-openclaw"
+CHECKPOINT_DIR="$CACHE_DIR/checkpoints-chromium"
 APT_CACHE_DIR="$CACHE_DIR/apt-archives"
-SCRIPTS_CACHE_DIR="$CACHE_DIR/scripts"
-mkdir -p "$CHECKPOINT_DIR" "$APT_CACHE_DIR" "$SCRIPTS_CACHE_DIR"
+mkdir -p "$CHECKPOINT_DIR" "$APT_CACHE_DIR"
 
 # Cache files
-CACHE_TAR="$CACHE_DIR/debootstrap-${SUITE}-base.tar"
-CACHE_NODESOURCE="$SCRIPTS_CACHE_DIR/nodesource_setup_22.x.sh"
-CACHE_OPENCLAW="$SCRIPTS_CACHE_DIR/openclaw_install.sh"
+CACHE_TAR="$(realpath -m "$CACHE_DIR/debootstrap-${SUITE}-chromium.tar")"
 
 # Work dir must be on WSL Linux FS (/tmp), not NTFS (DrvFS /mnt/*) - loop devices need mknod
-WORK_DIR="/tmp/tenbox-rootfs-openclaw"
+WORK_DIR="${TENBOX_WORK_DIR:-/tmp/tenbox-rootfs-chromium}"
 
 # Parse arguments
 FORCE_REBUILD=false
@@ -62,9 +58,9 @@ OUTPUT_ARG=""
 
 show_help() {
     cat << 'HELP'
-Usage: ./make-rootfs.sh [OPTIONS] [output.qcow2]
+Usage: ./make-rootfs-chromium.sh [OPTIONS] [output.qcow2]
 
-Build a Debian rootfs image for TenBox.
+Build a minimal Debian desktop rootfs image for TenBox with Chromium browser.
 
 Options:
   --help          Show this help message
@@ -74,9 +70,9 @@ Options:
   --from-step N   Resume from step N (use --list-steps to see numbers)
 
 Examples:
-  ./make-rootfs.sh                    # Normal build (resume if interrupted)
-  ./make-rootfs.sh --status           # Check progress
-  ./make-rootfs.sh --force            # Rebuild from scratch
+  ./make-rootfs-chromium.sh                    # Normal build (resume if interrupted)
+  ./make-rootfs-chromium.sh --status           # Check progress
+  ./make-rootfs-chromium.sh --force            # Rebuild from scratch
 HELP
     exit 0
 }
@@ -109,14 +105,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -n "$OUTPUT_ARG" ]; then
-    OUTPUT="$(realpath -m "$OUTPUT_ARG")"
-else
-    OUTPUT=""  # will be determined after openclaw version is known
-    OUTPUT_DIR="$(realpath -m "$BUILD_DIR/share")"
-fi
-
-OPENCLAW_VERSION=""
+OUTPUT="$(realpath -m "${OUTPUT_ARG:-$BUILD_DIR/share/rootfs-chromium.qcow2}")"
 
 # Step definitions
 STEPS=(
@@ -133,9 +122,6 @@ STEPS=(
     "install_audio"
     "install_ibus"
     "install_usertools"
-    "install_nodejs"
-    "install_openclaw"
-    "config_openclaw"
     "config_locale"
     "config_services"
     "config_virtio_gpu"
@@ -163,9 +149,6 @@ STEP_DESCRIPTIONS=(
     "Install audio (PulseAudio + ALSA)"
     "Install IBus Chinese input method"
     "Install user tools (Chromium, etc.)"
-    "Install Node.js 22"
-    "Install OpenClaw"
-    "Configure OpenClaw (tools, daemon)"
     "Configure locale"
     "Configure systemd services"
     "Configure virtio-gpu resize"
@@ -206,7 +189,7 @@ fi
 if $FORCE_REBUILD; then
     echo "Force rebuild: clearing all checkpoints and work directory..."
     rm -f "$CHECKPOINT_DIR"/*.done
-    sudo rm -rf "$WORK_DIR"
+    rm -rf "$WORK_DIR"
 fi
 
 # Clear checkpoints from specified step onwards
@@ -245,7 +228,7 @@ cleanup() {
     fi
     # Don't remove WORK_DIR on failure so we can resume
     if [ "${BUILD_SUCCESS:-false}" = "true" ]; then
-        sudo rm -rf "$WORK_DIR"
+        rm -rf "$WORK_DIR"
     else
         echo "Work directory preserved for resume: $WORK_DIR"
     fi
@@ -309,8 +292,14 @@ do_debootstrap() {
     
     if [ -f "$CACHE_TAR" ]; then
         echo "  Using cached tarball: $CACHE_TAR"
-        sudo debootstrap --include="$INCLUDE_PKGS" \
-            --unpack-tarball="$CACHE_TAR" "$SUITE" "$MOUNT_DIR" "$MIRROR"
+        if ! sudo debootstrap --include="$INCLUDE_PKGS" \
+            --unpack-tarball="$CACHE_TAR" "$SUITE" "$MOUNT_DIR" "$MIRROR"; then
+            echo "  Cache tarball failed, removing stale cache and cleaning mount dir..."
+            rm -f "$CACHE_TAR"
+            sudo rm -rf "${MOUNT_DIR:?}"/*
+            sudo debootstrap --include="$INCLUDE_PKGS" \
+                "$SUITE" "$MOUNT_DIR" "$MIRROR"
+        fi
     else
         echo "  No cache found, downloading packages (first run)..."
         sudo debootstrap --include="$INCLUDE_PKGS" \
@@ -346,8 +335,9 @@ PRC
     fi
     
     # Copy rootfs helper scripts and services
-    sudo cp -r "$SCRIPT_DIR/rootfs-scripts" "$MOUNT_DIR/tmp/"
-    sudo cp -r "$SCRIPT_DIR/rootfs-services" "$MOUNT_DIR/tmp/"
+    sudo cp -r "$SCRIPT_DIR/../rootfs-scripts" "$MOUNT_DIR/tmp/"
+    sudo cp -r "$SCRIPT_DIR/../rootfs-services" "$MOUNT_DIR/tmp/"
+    sudo cp -r "$SCRIPT_DIR/../rootfs-configs" "$MOUNT_DIR/tmp/"
 }
 
 do_config_basic() {
@@ -471,15 +461,13 @@ EOF
 
 do_install_devtools() {
     sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
-if dpkg -s python3 &>/dev/null && dpkg -s g++ &>/dev/null && dpkg -s cmake &>/dev/null; then
+if dpkg -s python3 &>/dev/null; then
     echo "  Dev tools already installed"
     exit 0
 fi
 echo "Installing development tools..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3 python3-pip python3-venv \
-    g++ make cmake git \
-    inotify-tools
+    python3 python3-pip python3-venv
 EOF
 }
 
@@ -533,154 +521,6 @@ IBUS
 EOF
 }
 
-do_install_nodejs() {
-    # Cache NodeSource setup script (atomic write)
-    if [ ! -f "$CACHE_NODESOURCE" ] || [ ! -s "$CACHE_NODESOURCE" ]; then
-        echo "  Downloading NodeSource setup script..."
-        rm -f "$CACHE_NODESOURCE" "$CACHE_NODESOURCE.tmp"
-        curl -fsSL https://deb.nodesource.com/setup_22.x -o "$CACHE_NODESOURCE.tmp"
-        mv "$CACHE_NODESOURCE.tmp" "$CACHE_NODESOURCE"
-    fi
-    sudo cp "$CACHE_NODESOURCE" "$MOUNT_DIR/tmp/nodesource_setup.sh"
-    
-    sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
-if command -v node &>/dev/null && node --version | grep -q "v22"; then
-    echo "  Node.js 22 already installed"
-    exit 0
-fi
-echo "Installing Node.js 22..."
-bash /tmp/nodesource_setup.sh
-DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
-rm -f /tmp/nodesource_setup.sh
-
-# Configure npm to use Alibaba Cloud mirror
-npm config set registry https://registry.npmmirror.com --global
-echo "registry=https://registry.npmmirror.com" >> /etc/npmrc
-su - $USER_NAME -c "npm config set registry https://registry.npmmirror.com"
-EOF
-}
-
-do_install_openclaw() {
-    # Cache OpenClaw install script (atomic write)
-    if [ ! -f "$CACHE_OPENCLAW" ] || [ ! -s "$CACHE_OPENCLAW" ]; then
-        echo "  Downloading OpenClaw install script..."
-        rm -f "$CACHE_OPENCLAW" "$CACHE_OPENCLAW.tmp"
-        curl -fsSL https://openclaw.ai/install.sh -o "$CACHE_OPENCLAW.tmp"
-        mv "$CACHE_OPENCLAW.tmp" "$CACHE_OPENCLAW"
-    fi
-    sudo cp "$CACHE_OPENCLAW" "$MOUNT_DIR/tmp/openclaw_install.sh"
-    
-    sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
-if su - $USER_NAME -c 'command -v openclaw' &>/dev/null; then
-    echo "  OpenClaw already installed"
-    exit 0
-fi
-echo "Installing OpenClaw..."
-su - $USER_NAME -c 'bash /tmp/openclaw_install.sh --no-onboard'
-rm -f /tmp/openclaw_install.sh
-
-# Ensure npm global bin and OpenClaw env vars are set for interactive sessions
-if ! grep -q 'npm-global/bin' /home/$USER_NAME/.bashrc 2>/dev/null; then
-    cat >> /home/$USER_NAME/.bashrc << 'BASHRC'
-export PATH="\$HOME/.npm-global/bin:\$PATH"
-export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
-export OPENCLAW_NO_RESPAWN=1
-BASHRC
-fi
-EOF
-
-    # Extract version for output filename
-    OPENCLAW_VERSION=$(sudo chroot "$MOUNT_DIR" su - "$USER_NAME" -c \
-        'PATH="$HOME/.npm-global/bin:$PATH" npm ls -g openclaw 2>/dev/null' \
-        | grep 'openclaw@' | sed 's/.*openclaw@//' || true)
-    if [ -n "$OPENCLAW_VERSION" ]; then
-        echo "  OpenClaw version: $OPENCLAW_VERSION"
-    else
-        echo "  WARNING: Could not detect OpenClaw version"
-    fi
-}
-
-do_config_openclaw() {
-    # Write config script to avoid shell escaping issues with nested su/heredoc
-    sudo tee "$MOUNT_DIR/tmp/openclaw_config.sh" > /dev/null << 'SCRIPT'
-#!/bin/bash
-set -e
-export PATH="$HOME/.npm-global/bin:$PATH"
-openclaw config set tools.profile full
-openclaw config set gateway.mode local
-openclaw config set gateway.bind lan
-openclaw config set gateway.auth.mode token
-openclaw config set gateway.auth.token tenbox
-openclaw config set gateway.controlUi.allowInsecureAuth true
-openclaw config set gateway.controlUi.dangerouslyDisableDeviceAuth true
-openclaw config set gateway.controlUi.allowedOrigins '["*"]'
-SCRIPT
-    sudo chmod +x "$MOUNT_DIR/tmp/openclaw_config.sh"
-
-    sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
-# Configure openclaw settings
-if [ -f /home/$USER_NAME/.openclaw/openclaw.json ] && \
-   grep -q '"profile"' /home/$USER_NAME/.openclaw/openclaw.json 2>/dev/null; then
-    echo "  OpenClaw config already set"
-else
-    echo "Configuring OpenClaw..."
-    su - $USER_NAME -c 'bash /tmp/openclaw_config.sh'
-fi
-rm -f /tmp/openclaw_config.sh
-
-# Install systemd user service manually (openclaw daemon install needs running systemd)
-USER_HOME=/home/$USER_NAME
-UNIT_DIR=\$USER_HOME/.config/systemd/user
-
-if [ -f "\$UNIT_DIR/openclaw-gateway.service" ]; then
-    echo "  OpenClaw systemd service already installed"
-else
-    echo "Installing OpenClaw systemd service..."
-    mkdir -p "\$UNIT_DIR"
-
-    OC_VERSION=\$(node \$USER_HOME/.npm-global/lib/node_modules/openclaw/dist/index.js --version 2>/dev/null || echo "unknown")
-    OC_TOKEN=\$(grep -o '"token":"[^"]*"' \$USER_HOME/.openclaw/openclaw.json 2>/dev/null | head -1 | cut -d'"' -f4 || echo "tenbox")
-
-    cat > "\$UNIT_DIR/openclaw-gateway.service" << UNIT
-[Unit]
-Description=OpenClaw Gateway (v\$OC_VERSION)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/bin/node \$USER_HOME/.npm-global/lib/node_modules/openclaw/dist/index.js gateway --port 18789
-Restart=always
-RestartSec=5
-KillMode=process
-Environment=HOME=\$USER_HOME
-Environment=TMPDIR=/tmp
-Environment=PATH=\$USER_HOME/.local/bin:\$USER_HOME/.npm-global/bin:\$USER_HOME/bin:/usr/local/bin:/usr/bin:/bin
-Environment=OPENCLAW_GATEWAY_PORT=18789
-Environment=OPENCLAW_GATEWAY_TOKEN=\$OC_TOKEN
-Environment=OPENCLAW_SYSTEMD_UNIT=openclaw-gateway.service
-Environment=OPENCLAW_SERVICE_MARKER=openclaw
-Environment=OPENCLAW_SERVICE_KIND=gateway
-Environment=OPENCLAW_SERVICE_VERSION=\$OC_VERSION
-Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
-Environment=OPENCLAW_NO_RESPAWN=1
-Environment=DISPLAY=:0
-
-[Install]
-WantedBy=default.target
-UNIT
-    chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
-
-    # Enable the service (create symlink since systemctl --user is unavailable in chroot)
-    mkdir -p "\$UNIT_DIR/default.target.wants"
-    ln -sf ../openclaw-gateway.service "\$UNIT_DIR/default.target.wants/openclaw-gateway.service"
-fi
-
-# Enable lingering so gateway starts at boot even before user login
-mkdir -p /var/lib/systemd/linger
-touch /var/lib/systemd/linger/$USER_NAME
-EOF
-}
-
 do_config_locale() {
     sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
 # Check if locale already configured
@@ -708,7 +548,7 @@ if [ -f /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf ]; then
 fi
 
 mkdir -p /etc/polkit-1/rules.d
-cp /tmp/rootfs-services/50-terrence-power.rules /etc/polkit-1/rules.d/
+cp /tmp/rootfs-services/50-user-power.rules /etc/polkit-1/rules.d/
 
 mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d
 cp /tmp/rootfs-services/serial-getty-autologin.conf /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
@@ -828,7 +668,6 @@ check "chromium"          dpkg -s chromium
 check "spice-vdagent"     dpkg -s spice-vdagent
 check "qemu-guest-agent"  dpkg -s qemu-guest-agent
 check "pulseaudio"        dpkg -s pulseaudio
-check "node"              command -v node
 check "curl"              command -v curl
 check "wget"              command -v wget
 check "vim"               command -v vim
@@ -840,14 +679,6 @@ EOF
 }
 
 do_cleanup_chroot() {
-    # Detect version from chroot if not already known (e.g. on resume)
-    if [ -z "$OPENCLAW_VERSION" ]; then
-        OPENCLAW_VERSION=$(sudo chroot "$MOUNT_DIR" su - "$USER_NAME" -c \
-            'PATH="$HOME/.npm-global/bin:$PATH" npm ls -g openclaw 2>/dev/null' \
-            | grep 'openclaw@' | sed 's/.*openclaw@//' || true)
-        [ -n "$OPENCLAW_VERSION" ] && echo "  Detected OpenClaw version: $OPENCLAW_VERSION"
-    fi
-
     # Clean apt cache inside chroot (but keep host cache)
     sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
 apt-get clean
@@ -856,14 +687,14 @@ rm -rf /var/log/*.log /var/log/apt/* /var/log/dpkg.log
 EOF
     
     sudo rm -f "$MOUNT_DIR/usr/sbin/policy-rc.d"
-    sudo rm -rf "$MOUNT_DIR/tmp/rootfs-scripts" "$MOUNT_DIR/tmp/rootfs-services"
+    sudo rm -rf "$MOUNT_DIR/tmp/rootfs-scripts" "$MOUNT_DIR/tmp/rootfs-services" "$MOUNT_DIR/tmp/rootfs-configs"
     sudo rm -f "$MOUNT_DIR/etc/resolv.conf"
     
     # Unmount apt cache
     mountpoint -q "$MOUNT_DIR/var/cache/apt/archives" 2>/dev/null && \
         sudo umount "$MOUNT_DIR/var/cache/apt/archives" || true
     
-    # Unmount proc/sys/dev
+    # Unmount proc/sys/dev (dev/pts must be unmounted before dev)
     sudo umount "$MOUNT_DIR/dev/pts" 2>/dev/null || true
     sudo umount "$MOUNT_DIR/proc" "$MOUNT_DIR/sys" "$MOUNT_DIR/dev" 2>/dev/null || true
 }
@@ -874,28 +705,8 @@ do_unmount_image() {
 }
 
 do_convert_qcow2() {
-    # Resolve final output path with version if not explicitly specified
-    if [ -z "$OUTPUT" ]; then
-        if [ -n "$OPENCLAW_VERSION" ]; then
-            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-${OPENCLAW_VERSION}.qcow2"
-        else
-            OUTPUT="$OUTPUT_DIR/rootfs-openclaw.qcow2"
-        fi
-    fi
-    mkdir -p "$(dirname "$OUTPUT")"
-
     echo "Converting to qcow2..."
-    # Prefer Windows qemu-img.exe (supports zstd), fallback to WSL version
-    WIN_QEMU="/mnt/c/Program Files/qemu/qemu-img.exe"
-    if [ -x "$WIN_QEMU" ]; then
-        echo "  Using Windows qemu-img with zstd compression..."
-        WIN_RAW=$(wslpath -w "$WORK_DIR/rootfs.raw")
-        WIN_OUTPUT=$(wslpath -w "$OUTPUT")
-        "$WIN_QEMU" convert -f raw -O qcow2 -o cluster_size=65536,compression_type=zstd -c "$WIN_RAW" "$WIN_OUTPUT"
-    else
-        echo "  Using WSL qemu-img with zlib compression..."
-        qemu-img convert -f raw -O qcow2 -o cluster_size=65536 -c "$WORK_DIR/rootfs.raw" "$OUTPUT"
-    fi
+    qemu-img convert -f raw -O qcow2 -o cluster_size=65536,compression_type=zstd -c "$WORK_DIR/rootfs.raw" "$OUTPUT"
 }
 
 # Execute all steps
@@ -912,9 +723,6 @@ run_step "install_devtools" "Installing dev tools"    do_install_devtools
 run_step "install_audio"  "Installing audio"          do_install_audio
 run_step "install_ibus"   "Installing IBus"           do_install_ibus
 run_step "install_usertools" "Installing user tools"  do_install_usertools
-run_step "install_nodejs" "Installing Node.js"        do_install_nodejs
-run_step "install_openclaw" "Installing OpenClaw"     do_install_openclaw
-run_step "config_openclaw" "Configuring OpenClaw"     do_config_openclaw
 run_step "config_locale"  "Configuring locale"        do_config_locale
 run_step "config_services" "Configuring services"     do_config_services
 run_step "config_virtio_gpu" "Configuring virtio-gpu" do_config_virtio_gpu

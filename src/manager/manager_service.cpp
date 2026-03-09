@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <ctime>
 #include <cstdio>
 #include <filesystem>
@@ -1379,6 +1380,7 @@ void ManagerService::HandleProcessExit(const std::string& vm_id) {
             vm.state = (vm.last_exit_code != 0)
                 ? VmPowerState::kCrashed : VmPowerState::kStopped;
         }
+        shm_framebuffers_.erase(vm_id);
         cb = state_change_callback_;
     }
     if (cb) cb(vm_id);
@@ -1534,7 +1536,90 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
 
     if (msg.channel == ipc::Channel::kDisplay &&
         msg.kind == ipc::Kind::kEvent &&
+        msg.type == "display.shm_init") {
+        auto ni = msg.fields.find("shm_name");
+        if (ni == msg.fields.end()) return;
+        auto get = [&](const char* key) -> uint32_t {
+            auto it = msg.fields.find(key);
+            return (it != msg.fields.end()) ? static_cast<uint32_t>(std::strtoul(it->second.c_str(), nullptr, 10)) : 0;
+        };
+        uint32_t w = get("width");
+        uint32_t h = get("height");
+        if (w == 0 || h == 0) return;
+        {
+            std::lock_guard<std::mutex> lock(vms_mutex_);
+            auto& fb = shm_framebuffers_[vm_id];
+            fb = std::make_unique<ipc::SharedFramebuffer>();
+            fb->Open(ni->second, w, h);
+        }
+        return;
+    }
+
+    if (msg.channel == ipc::Channel::kDisplay &&
+        msg.kind == ipc::Kind::kEvent &&
+        msg.type == "display.frame_ready") {
+        auto get = [&](const char* key) -> uint32_t {
+            auto it = msg.fields.find(key);
+            return (it != msg.fields.end()) ? static_cast<uint32_t>(std::strtoul(it->second.c_str(), nullptr, 10)) : 0;
+        };
+        uint32_t dw = get("width");
+        uint32_t dh = get("height");
+        uint32_t format = get("format");
+        uint32_t resW = get("resource_width");
+        uint32_t resH = get("resource_height");
+        uint32_t dx = get("dirty_x");
+        uint32_t dy = get("dirty_y");
+        if (resW == 0) resW = dw;
+        if (resH == 0) resH = dh;
+        if (dw == 0 || dh == 0) return;
+
+        ipc::SharedFramebuffer* fb = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(vms_mutex_);
+            auto it = shm_framebuffers_.find(vm_id);
+            if (it != shm_framebuffers_.end() && it->second &&
+                it->second->IsValid() &&
+                it->second->width() == resW && it->second->height() == resH) {
+                fb = it->second.get();
+            }
+        }
+        if (!fb) return;
+
+        DisplayFrame frame;
+        frame.width = dw;
+        frame.height = dh;
+        frame.stride = dw * 4;
+        frame.format = format;
+        frame.resource_width = resW;
+        frame.resource_height = resH;
+        frame.dirty_x = dx;
+        frame.dirty_y = dy;
+
+        size_t row_bytes = static_cast<size_t>(dw) * 4;
+        frame.pixels.resize(row_bytes * dh);
+        uint32_t src_stride = fb->stride();
+        const uint8_t* src = fb->data();
+        for (uint32_t row = 0; row < dh; ++row) {
+            size_t src_off = static_cast<size_t>(dy + row) * src_stride +
+                             static_cast<size_t>(dx) * 4;
+            size_t dst_off = static_cast<size_t>(row) * row_bytes;
+            if (src_off + row_bytes > fb->size()) break;
+            std::memcpy(frame.pixels.data() + dst_off, src + src_off, row_bytes);
+        }
+
+        DisplayCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(vms_mutex_);
+            cb = display_callback_;
+        }
+        if (cb) cb(vm_id, std::move(frame));
+        return;
+    }
+
+    if (msg.channel == ipc::Channel::kDisplay &&
+        msg.kind == ipc::Kind::kEvent &&
         msg.type == "display.frame") {
+        // Legacy fallback path: frame data sent via IPC payload.
         DisplayFrame frame;
         auto get = [&](const char* key) -> uint32_t {
             auto it = msg.fields.find(key);

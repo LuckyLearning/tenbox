@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 cmake_policy(SET CMP0091 NEW)
 cmake_policy(SET CMP0169 OLD)
-project(TenBox VERSION 0.2.6 LANGUAGES C CXX)
+
+file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TENBOX_VERSION_STRING LIMIT_COUNT 1)
+string(STRIP "${TENBOX_VERSION_STRING}" TENBOX_VERSION_STRING)
+project(TenBox VERSION ${TENBOX_VERSION_STRING} LANGUAGES C CXX)
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/VERSION")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -73,6 +78,8 @@ set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
 
 if(MSVC)
     target_compile_options(lwipcore PRIVATE /W0)
+else()
+    target_compile_options(lwipcore PRIVATE -w)
 endif()
 
 configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h)
@@ -89,5 +96,11 @@ add_subdirectory(src/core)
 add_subdirectory(src/platform)
 add_subdirectory(src/ipc)
 add_subdirectory(src/runtime)
-add_subdirectory(src/manager)
+
+if(WIN32)
+    add_subdirectory(src/manager)
+endif()
+
+# macOS manager is built separately via Xcode/SwiftPM (src/manager-macos)
+
 add_subdirectory(tests)

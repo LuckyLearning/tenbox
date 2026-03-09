@@ -3,6 +3,7 @@
 #include "common/ports.h"
 #include "common/vm_model.h"
 #include "ipc/protocol_v1.h"
+#include "ipc/shared_framebuffer.h"
 #include "manager/app_settings.h"
 #include "core/vdagent/vdagent_protocol.h"
 
@@ -214,4 +215,7 @@ private:
     PortForwardErrorCallback port_forward_error_callback_;
     bool hypervisor_available_ = true;
     void* job_object_ = nullptr;
+
+    // Per-VM shared-memory framebuffers for zero-copy display transport.
+    std::map<std::string, std::unique_ptr<ipc::SharedFramebuffer>> shm_framebuffers_;
 };

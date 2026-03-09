@@ -3,8 +3,6 @@
 #include "core/vmm/types.h"
 #include "core/vmm/vm.h"
 
-#include <windows.h>
-
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -12,14 +10,6 @@
 #include <cstdio>
 #include <cstring>
 #include <unordered_set>
-
-namespace {
-
-HANDLE AsHandle(void* handle) {
-    return reinterpret_cast<HANDLE>(handle);
-}
-
-}  // namespace
 
 void ManagedConsolePort::Write(const uint8_t* data, size_t size) {
     if (!data || size == 0) return;
@@ -222,29 +212,86 @@ RuntimeControlService::RuntimeControlService(std::string vm_id, std::string pipe
     });
 
     display_port_->SetFrameHandler([this](DisplayFrame frame) {
-        ipc::Message event;
-        event.kind = ipc::Kind::kEvent;
-        event.channel = ipc::Channel::kDisplay;
-        event.type = "display.frame";
-        event.vm_id = vm_id_;
-        event.request_id = next_event_id_++;
-        event.fields["width"] = std::to_string(frame.width);
-        event.fields["height"] = std::to_string(frame.height);
-        event.fields["stride"] = std::to_string(frame.stride);
-        event.fields["format"] = std::to_string(frame.format);
-        event.fields["resource_width"] = std::to_string(frame.resource_width);
-        event.fields["resource_height"] = std::to_string(frame.resource_height);
-        event.fields["dirty_x"] = std::to_string(frame.dirty_x);
-        event.fields["dirty_y"] = std::to_string(frame.dirty_y);
-        event.payload = std::move(frame.pixels);
+        uint32_t resW = frame.resource_width ? frame.resource_width : frame.width;
+        uint32_t resH = frame.resource_height ? frame.resource_height : frame.height;
 
-        std::string encoded = ipc::Encode(event);
+        // Create or resize shared framebuffer when resource dimensions change.
+        // Each resize uses a unique name (generation suffix) so the Manager
+        // can open the new mapping without conflicting with the old one that
+        // may still be mapped on its side.
+        if (!shm_fb_.IsValid() || shm_fb_.width() != resW || shm_fb_.height() != resH) {
+            if (shm_fb_.IsValid()) {
+                shm_fb_.Close();
+            }
+            ++shm_generation_;
+            std::string shm_name = ipc::GetSharedFramebufferName(vm_id_)
+                                   + "_" + std::to_string(shm_generation_);
+            if (!shm_fb_.Create(shm_name, resW, resH)) {
+                LOG_ERROR("RuntimeService: failed to create shared framebuffer %ux%u", resW, resH);
+                return;
+            }
+            shm_init_sent_ = false;
+            shm_frame_seq_ = 0;
+        }
+
+        // Send shm_init notification so the manager can open the mapping.
+        if (!shm_init_sent_) {
+            ipc::Message init;
+            init.kind = ipc::Kind::kEvent;
+            init.channel = ipc::Channel::kDisplay;
+            init.type = "display.shm_init";
+            init.vm_id = vm_id_;
+            init.request_id = next_event_id_++;
+            init.fields["shm_name"] = shm_fb_.name();
+            init.fields["width"] = std::to_string(resW);
+            init.fields["height"] = std::to_string(resH);
+            Send(init);
+            shm_init_sent_ = true;
+        }
+
+        // Blit dirty rect into shared memory.
+        uint32_t dx = frame.dirty_x;
+        uint32_t dy = frame.dirty_y;
+        uint32_t dw = frame.width;
+        uint32_t dh = frame.height;
+        uint32_t src_stride = frame.stride;
+        uint32_t dst_stride = shm_fb_.stride();
+        const uint8_t* src = frame.pixels.data();
+        uint8_t* dst = shm_fb_.data();
+
+        for (uint32_t row = 0; row < dh; ++row) {
+            size_t src_off = static_cast<size_t>(row) * src_stride;
+            size_t dst_off = static_cast<size_t>(dy + row) * dst_stride +
+                             static_cast<size_t>(dx) * 4;
+            if (src_off + dw * 4 > frame.pixels.size()) break;
+            if (dst_off + dw * 4 > shm_fb_.size()) break;
+            std::memcpy(dst + dst_off, src + src_off, dw * 4);
+        }
+
+        // Send lightweight metadata-only notification.
+        uint64_t seq = ++shm_frame_seq_;
+        ipc::Message notify;
+        notify.kind = ipc::Kind::kEvent;
+        notify.channel = ipc::Channel::kDisplay;
+        notify.type = "display.frame_ready";
+        notify.vm_id = vm_id_;
+        notify.request_id = next_event_id_++;
+        notify.fields["width"] = std::to_string(dw);
+        notify.fields["height"] = std::to_string(dh);
+        notify.fields["stride"] = std::to_string(dst_stride);
+        notify.fields["format"] = std::to_string(frame.format);
+        notify.fields["resource_width"] = std::to_string(resW);
+        notify.fields["resource_height"] = std::to_string(resH);
+        notify.fields["dirty_x"] = std::to_string(dx);
+        notify.fields["dirty_y"] = std::to_string(dy);
+        notify.fields["seq"] = std::to_string(seq);
+
+        std::string encoded = ipc::Encode(notify);
         {
             std::lock_guard<std::mutex> lock(send_queue_mutex_);
+            // Shared-memory path: only keep the latest notification.
+            frame_queue_.clear();
             frame_queue_.push_back(std::move(encoded));
-            if (frame_queue_.size() > kMaxPendingFrames) {
-                frame_queue_.pop_front();
-            }
         }
         send_cv_.notify_one();
     });
@@ -381,7 +428,6 @@ bool RuntimeControlService::Start() {
     running_ = true;
 
     send_thread_ = std::thread([this]() {
-        HANDLE h = AsHandle(pipe_handle_);
         constexpr auto kFlushInterval = std::chrono::milliseconds(20);
 
         while (running_) {
@@ -389,7 +435,6 @@ bool RuntimeControlService::Start() {
             {
                 std::unique_lock<std::mutex> lock(send_queue_mutex_);
 
-                // Determine wait duration based on whether console has pending data.
                 bool has_pending = console_port_->HasPending();
                 if (has_pending) {
                     send_cv_.wait_for(lock, kFlushInterval);
@@ -406,7 +451,6 @@ bool RuntimeControlService::Start() {
                     break;
                 }
 
-                // Flush any pending console output from the port.
                 std::string console_data = console_port_->FlushPending();
                 if (!console_data.empty()) {
                     ipc::Message event;
@@ -421,22 +465,18 @@ bool RuntimeControlService::Start() {
                     batch += ipc::Encode(event);
                 }
 
-                // Send all queued high-priority messages (control responses, etc.).
                 while (!console_queue_.empty()) {
                     batch += std::move(console_queue_.front());
                     console_queue_.pop_front();
                 }
 
-                // Send audio PCM chunks (latency-sensitive).
                 size_t audio_to_send = audio_queue_.size();
                 while (audio_to_send-- > 0 && !audio_queue_.empty()) {
                     batch += std::move(audio_queue_.front());
                     audio_queue_.pop_front();
                 }
 
-                // Send display frames (bounded to avoid blocking too long).
-                size_t frames_to_send = frame_queue_.size();
-                while (frames_to_send-- > 0 && !frame_queue_.empty()) {
+                while (!frame_queue_.empty()) {
                     batch += std::move(frame_queue_.front());
                     frame_queue_.pop_front();
                 }
@@ -447,23 +487,11 @@ bool RuntimeControlService::Start() {
             }
 
             std::lock_guard<std::mutex> send_lock(send_mutex_);
-            h = AsHandle(pipe_handle_);
-            if (!h || h == INVALID_HANDLE_VALUE) {
+            if (!transport_ || !transport_->IsConnected()) {
                 break;
             }
-
-            const char* data = batch.data();
-            size_t remaining = batch.size();
-            while (remaining > 0) {
-                DWORD written = 0;
-                if (!WriteFile(h, data, static_cast<DWORD>(remaining), &written, nullptr)) {
-                    break;
-                }
-                if (written == 0) {
-                    break;
-                }
-                data += written;
-                remaining -= written;
+            if (!transport_->Send(batch)) {
+                break;
             }
         }
     });
@@ -476,19 +504,14 @@ void RuntimeControlService::Stop() {
     running_ = false;
     send_cv_.notify_all();
 
-    // Let the send thread drain remaining queued messages before closing
-    // the pipe, so final state updates (e.g. "crashed") reach the manager.
     if (send_thread_.joinable()) {
         send_thread_.join();
     }
 
-    HANDLE h = AsHandle(pipe_handle_);
-    if (h && h != INVALID_HANDLE_VALUE) {
-        FlushFileBuffers(h);
-        CancelIoEx(h, nullptr);
-        CloseHandle(h);
-        pipe_handle_ = nullptr;
+    if (transport_) {
+        transport_->Close();
     }
+
     if (recv_thread_.joinable()) {
         recv_thread_.join();
     }
@@ -526,28 +549,13 @@ void RuntimeControlService::PublishState(const std::string& state, int exit_code
 
 bool RuntimeControlService::EnsureClientConnected() {
     if (pipe_name_.empty()) return false;
+    if (transport_ && transport_->IsConnected()) return true;
 
-    HANDLE h = AsHandle(pipe_handle_);
-    if (h && h != INVALID_HANDLE_VALUE) return true;
-
-    std::string full_name = R"(\\.\pipe\)" + pipe_name_;
-    
-    // Connect to Manager's pipe (already created before we started).
-    h = CreateFileA(
-        full_name.c_str(),
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        nullptr,
-        OPEN_EXISTING,
-        0,
-        nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        LOG_ERROR("Failed to connect to pipe %s: %lu", full_name.c_str(), GetLastError());
+    transport_ = ipc::CreateClientTransport();
+    if (!transport_->Connect(pipe_name_)) {
+        transport_.reset();
         return false;
     }
-    DWORD mode = PIPE_READMODE_BYTE;
-    SetNamedPipeHandleState(h, &mode, nullptr, nullptr);
-    pipe_handle_ = h;
     return true;
 }
 
@@ -822,6 +830,7 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
         if (it_w != message.fields.end() && it_h != message.fields.end() && vm_) {
             uint32_t w = static_cast<uint32_t>(std::strtoul(it_w->second.c_str(), nullptr, 10));
             uint32_t h = static_cast<uint32_t>(std::strtoul(it_h->second.c_str(), nullptr, 10));
+            LOG_INFO("RuntimeService: display.set_size %ux%u", w, h);
             vm_->SetDisplaySize(w, h);
         }
         return;
@@ -888,6 +897,7 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
             return;
         }
     }
+
 }
 
 void RuntimeControlService::RunLoop() {
@@ -895,41 +905,21 @@ void RuntimeControlService::RunLoop() {
         return;
     }
 
-    HANDLE h = AsHandle(pipe_handle_);
     std::array<char, 65536> buf{};
     std::string pending;
     size_t payload_needed = 0;
     ipc::Message pending_msg;
 
     while (running_) {
-        DWORD available = 0;
-        if (!PeekNamedPipe(h, nullptr, 0, nullptr, &available, nullptr)) {
-            DWORD err = GetLastError();
-            if (err == ERROR_BROKEN_PIPE) {
-                break;
-            }
-            Sleep(1);
-            continue;
-        }
-        if (available == 0) {
-            Sleep(1);
-            continue;
-        }
+        if (!transport_ || !transport_->IsConnected()) break;
 
-        DWORD to_read = (std::min)(available, static_cast<DWORD>(buf.size()));
-        DWORD read = 0;
-        if (!ReadFile(h, buf.data(), to_read, &read, nullptr)) {
-            DWORD err = GetLastError();
-            if (err == ERROR_BROKEN_PIPE || err == ERROR_OPERATION_ABORTED) {
-                break;
-            }
-            continue;
-        }
-        if (read == 0) {
-            continue;
-        }
+        int poll_result = transport_->PollRead(10);
+        if (poll_result < 0) break;
+        if (poll_result == 0) continue;
 
-        pending.append(buf.data(), read);
+        ssize_t n = transport_->Recv(buf.data(), buf.size());
+        if (n <= 0) break;
+        pending.append(buf.data(), static_cast<size_t>(n));
 
         while (!pending.empty()) {
             if (payload_needed > 0) {

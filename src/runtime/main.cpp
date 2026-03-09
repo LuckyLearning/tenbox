@@ -2,16 +2,69 @@
 #include "version.h"
 #include "core/vmm/vm.h"
 
+#ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <sys/types.h>
+#include <unistd.h>
+#include <thread>
+#ifdef __APPLE__
+#include <sys/event.h>
+#else
+#include <sys/prctl.h>
+#include <signal.h>
+#endif
+#endif
 
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+// Watch for parent process exit and request VM stop.
+// macOS: uses kqueue EVFILT_PROC (kernel-level, like Windows Job Objects).
+// Linux: uses prctl PR_SET_PDEATHSIG to receive SIGTERM on parent death.
+static void WatchParentProcess(pid_t parent_pid, Vm* vm) {
+#ifdef __APPLE__
+    int kq = kqueue();
+    if (kq < 0) return;
+
+    struct kevent ev;
+    EV_SET(&ev, parent_pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, nullptr);
+    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) < 0) {
+        close(kq);
+        return;
+    }
+
+    // Block until parent exits (or is already dead)
+    struct kevent triggered;
+    kevent(kq, nullptr, 0, &triggered, 1, nullptr);
+    close(kq);
+    fprintf(stderr, "Parent process %d exited, stopping VM\n", parent_pid);
+    vm->RequestStop();
+#else
+    // On Linux, PR_SET_PDEATHSIG delivers a signal when the parent dies.
+    // If reparented to init (pid 1) already, parent is gone.
+    if (getppid() != parent_pid) {
+        fprintf(stderr, "Parent process %d already exited, stopping VM\n", parent_pid);
+        vm->RequestStop();
+        return;
+    }
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
+    // Double-check: the parent may have died between getppid() and prctl()
+    if (getppid() != parent_pid) {
+        fprintf(stderr, "Parent process %d exited, stopping VM\n", parent_pid);
+        vm->RequestStop();
+    }
+    // SIGTERM default handler will terminate this process.
+#endif
+}
+#endif // !_WIN32
 
 static void PrintVersion() {
     fprintf(stderr, "TenBox vm-runtime v" TENBOX_VERSION "\n");
@@ -25,9 +78,13 @@ static void PrintUsage(const char* prog) {
         "Options:\n"
         "  --vm-id <id>         Runtime vm id (default: default)\n"
         "  --control-endpoint <name>\n"
+#ifdef _WIN32
         "                       Named pipe endpoint (without \\\\.\\pipe\\ prefix)\n"
+#else
+        "                       Unix domain socket path\n"
+#endif
         "  --interactive on|off Console mode (default: on)\n"
-        "  --kernel <path>      Path to vmlinuz (required)\n"
+        "  --kernel <path>      Path to vmlinuz / Image (required)\n"
         "  --initrd <path>      Path to initramfs\n"
         "  --disk <path>        Path to raw / qcow2 disk image\n"
         "  --cmdline <str>      Kernel command line\n"
@@ -42,6 +99,7 @@ static void PrintUsage(const char* prog) {
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
     // Get true Unicode command line, bypassing ANSI codepage on pre-1903 Windows
     int wargc = 0;
     wchar_t** wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
@@ -64,6 +122,7 @@ int main(int argc, char* argv[]) {
         argc = wargc;
         argv = u8argv_ptrs.data();
     }
+#endif
 
     // Set line buffering for stdout/stderr so logs flush on newline
     setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
@@ -208,6 +267,15 @@ int main(int argc, char* argv[]) {
     }
     if (control) control->AttachVm(vm.get());
     if (control) control->PublishState("running");
+
+#ifndef _WIN32
+    pid_t parent_pid = getppid();
+    std::thread parent_watcher;
+    if (parent_pid > 1) {
+        parent_watcher = std::thread(WatchParentProcess, parent_pid, vm.get());
+        parent_watcher.detach();
+    }
+#endif
 
     int exit_code = vm->Run();
     bool wants_reboot = vm->RebootRequested();

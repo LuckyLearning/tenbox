@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@ struct ImageFile {
     std::string name;
     std::string url;
     std::string sha256;  // empty = skip verification
+    uint64_t size = 0;
 };
 
 struct ImageEntry {
@@ -22,18 +24,25 @@ struct ImageEntry {
     std::string display_name;
     std::string description;
     std::string min_app_version;
-    std::string os;    // "linux", "windows", "macos"
-    std::string arch;  // "microvm", "i440fx", "q35"
+    std::string os;       // "linux", "windows", "macos"
+    std::string arch;     // "microvm", "i440fx", "q35"
+    std::string platform; // "arm64", "x86_64" (CPU architecture)
     std::vector<ImageFile> files;
 
     std::string CacheId() const { return id + "-" + version; }
+
+    uint64_t TotalSize() const {
+        uint64_t total = 0;
+        for (const auto& f : files) total += f.size;
+        return total;
+    }
 };
 
 // Parse JSON strings into structs
 std::vector<ImageSource> ParseSources(const std::string& json);
 std::vector<ImageEntry> ParseImages(const std::string& json);
 
-// Filter: remove entries where arch != "microvm" or min_app_version > current
+// Filter: remove entries where arch != "microvm", platform != current CPU, or min_app_version > current
 std::vector<ImageEntry> FilterImages(const std::vector<ImageEntry>& images,
                                      const std::string& current_app_version);
 

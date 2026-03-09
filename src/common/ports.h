@@ -54,7 +54,7 @@ struct CursorInfo {
     uint32_t height = 0;
     bool visible = false;
     bool image_updated = false;
-    std::vector<uint8_t> pixels;  // ARGB8888 format
+    std::vector<uint8_t> pixels;  // B8G8R8A8 format (BGRA byte order)
 };
 
 class DisplayPort {

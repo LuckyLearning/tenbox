@@ -161,6 +161,8 @@ static const std::unordered_map<S, const char*> kStringsEn = {
     {S::kImgCacheDeleted, "Cache deleted."},
     {S::kImgCacheDeleteFailed, "Failed to delete cache: %s"},
     {S::kImgEta, "Remaining %s"},
+    {S::kImgBtnLocalImage, "Local Image"},
+    {S::kImgLocalNoFiles, "No valid image files (vmlinuz / *.gz / *.qcow2) found in the selected folder."},
     {S::kUpdateAvailableTitle, "Update Available"},
     {S::kUpdateAvailableMsg, "A new version %s is available (current: %s).\n\n%s\n\nWould you like to update now?"},
     {S::kUpdateNow, "Yes"},
@@ -198,6 +200,8 @@ static const std::unordered_map<S, const char*> kStringsEn = {
         "2. Enable hardware virtualization in BIOS/UEFI settings\n"
         "   - Intel CPU: Enable VT-x (Intel Virtualization Technology)\n"
         "   - AMD CPU: Enable SVM Mode\n"
+        "   Tip: Open Task Manager > Performance tab to check if\n"
+        "   \"Virtualization\" shows as \"Enabled\".\n"
         "3. Run as Administrator in PowerShell:\n"
         "   bcdedit /set hypervisorlaunchtype auto\n"
         "4. Restart your computer"},
@@ -357,6 +361,8 @@ static const std::unordered_map<S, const char*> kStringsZhCN = {
     {S::kImgCacheDeleted, "缓存已删除。"},
     {S::kImgCacheDeleteFailed, "删除缓存失败：%s"},
     {S::kImgEta, "剩余 %s"},
+    {S::kImgBtnLocalImage, "本地镜像"},
+    {S::kImgLocalNoFiles, "所选文件夹中未找到有效的镜像文件（vmlinuz / *.gz / *.qcow2）。"},
     {S::kUpdateAvailableTitle, "发现新版本"},
     {S::kUpdateAvailableMsg, "新版本 %s 已发布（当前版本: %s）。\n\n%s\n\n是否立即更新？"},
     {S::kUpdateNow, "是"},
@@ -394,6 +400,7 @@ static const std::unordered_map<S, const char*> kStringsZhCN = {
         "2. 在 BIOS/UEFI 中开启 CPU 硬件虚拟化\n"
         "   · Intel CPU：开启 VT-x（Intel Virtualization Technology）\n"
         "   · AMD CPU：开启 SVM Mode\n"
+        "   提示：可打开任务管理器 → 性能页面，查看\"虚拟化\"是否显示为\"已启用\"。\n"
         "3. 以管理员身份运行 PowerShell，执行：\n"
         "   bcdedit /set hypervisorlaunchtype auto\n"
         "4. 重启计算机"},

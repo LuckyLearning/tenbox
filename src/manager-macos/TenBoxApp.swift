@@ -112,10 +112,12 @@ class AppState: ObservableObject {
     @Published var selectedVmId: String?
     @Published var showCreateVmDialog = false
     @Published var showEditVmDialog = false
+    @Published var showKeyboardCapturePermissionAlert = false
 
     private var bridge = TenBoxBridgeWrapper()
     private var activeSessions: [String: VmSession] = [:]
     private var stateObserver: NSObjectProtocol?
+    private var pendingVmStartId: String?
 
     init() {
         refreshVmList()
@@ -182,12 +184,41 @@ class AppState: ObservableObject {
         refreshVmList()
     }
 
+    func requestStartVm(id: String) {
+        let permissions = KeyboardCaptureManager.currentPermissions()
+        if permissions.accessibilityGranted {
+            startVm(id: id)
+            return
+        }
+
+        pendingVmStartId = id
+        showKeyboardCapturePermissionAlert = true
+    }
+
     func startVm(id: String) {
         bridge.startVm(id: id)
         refreshVmList()
         if let session = activeSessions[id] {
             session.connectIfNeeded()
         }
+    }
+
+    func startPendingVmWithoutPermissionPrompt() {
+        showKeyboardCapturePermissionAlert = false
+        guard let vmId = pendingVmStartId else { return }
+        pendingVmStartId = nil
+        startVm(id: vmId)
+    }
+
+    func requestKeyboardCapturePermissions() {
+        showKeyboardCapturePermissionAlert = false
+        pendingVmStartId = nil
+        KeyboardCaptureManager.requestFullCapturePermissions()
+    }
+
+    func dismissKeyboardCapturePermissionPrompt() {
+        showKeyboardCapturePermissionAlert = false
+        pendingVmStartId = nil
     }
 
     func stopVm(id: String) {
@@ -268,6 +299,7 @@ class AppState: ObservableObject {
         }
         session.ipcClient.sendPortForwardsUpdate(entries: entries, netEnabled: vm.netEnabled)
     }
+
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {

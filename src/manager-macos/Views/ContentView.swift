@@ -49,7 +49,7 @@ struct ContentView: View {
                     Divider()
 
                     if vm.state == .stopped || vm.state == .crashed {
-                        Button(action: { appState.startVm(id: vmId) }) {
+                        Button(action: { appState.requestStartVm(id: vmId) }) {
                             Label("Start", systemImage: "play.fill")
                         }
                     }
@@ -114,5 +114,25 @@ struct ContentView: View {
                 Text("Are you sure you want to force stop \"\(vm.name)\"? Unsaved data may be lost.")
             }
         }
+        .alert("Enable Full Keyboard Capture?", isPresented: $appState.showKeyboardCapturePermissionAlert) {
+            Button("Request Permissions") {
+                appState.requestKeyboardCapturePermissions()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Start Without It") {
+                appState.startPendingVmWithoutPermissionPrompt()
+            }
+            Button("Cancel", role: .cancel) {
+                appState.dismissKeyboardCapturePermissionPrompt()
+            }
+        } message: {
+            keyboardCapturePermissionMessage
+        }
+    }
+
+    private var keyboardCapturePermissionMessage: Text {
+        return Text("Full keyboard capture needs ") +
+            Text("Accessibility").bold() +
+            Text(" permission.\n\nYou can continue without full capture, or request permissions now.")
     }
 }

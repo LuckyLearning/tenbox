@@ -17,14 +17,26 @@ class InputHandler {
     private var lastPointerTime: Double = 0
     private var lastSentX: Int32 = -1
     private var lastSentY: Int32 = -1
+    private var activeModifierKeys: Set<UInt16> = []
+    private var pressedKeyCodes: Set<UInt16> = []
 
     func handleKeyDown(_ event: NSEvent) {
-        guard let code = macKeyCodeToEvdev(event.keyCode) else { return }
-        onKeyEvent?(code, true)
+        handleKeyDown(keyCode: event.keyCode)
     }
 
     func handleKeyUp(_ event: NSEvent) {
-        guard let code = macKeyCodeToEvdev(event.keyCode) else { return }
+        handleKeyUp(keyCode: event.keyCode)
+    }
+
+    func handleKeyDown(keyCode: UInt16) {
+        guard let code = macKeyCodeToEvdev(keyCode) else { return }
+        pressedKeyCodes.insert(code)
+        onKeyEvent?(code, true)
+    }
+
+    func handleKeyUp(keyCode: UInt16) {
+        guard let code = macKeyCodeToEvdev(keyCode) else { return }
+        pressedKeyCodes.remove(code)
         onKeyEvent?(code, false)
     }
 
@@ -64,12 +76,12 @@ class InputHandler {
         onPointerEvent?(absX, absY, buttonMask)
     }
 
-    private var activeModifierKeys: Set<UInt16> = []
-
     func handleFlagsChanged(_ event: NSEvent) {
-        let keyCode = event.keyCode
+        handleFlagsChanged(keyCode: event.keyCode, modifierFlags: event.modifierFlags)
+    }
+
+    func handleFlagsChanged(keyCode: UInt16, modifierFlags flags: NSEvent.ModifierFlags) {
         guard let evdev = macKeyCodeToEvdev(keyCode) else { return }
-        let flags = event.modifierFlags
         let pressed: Bool
         switch keyCode {
         case 0x38, 0x3C: pressed = flags.contains(.shift)
@@ -81,21 +93,28 @@ class InputHandler {
         }
         if pressed {
             activeModifierKeys.insert(keyCode)
+            pressedKeyCodes.insert(evdev)
         } else {
             activeModifierKeys.remove(keyCode)
+            pressedKeyCodes.remove(evdev)
         }
         onKeyEvent?(evdev, pressed)
     }
 
-    func releaseAllModifiers() {
-        let modifierCodes: [UInt16] = [29, 97, 42, 54, 56, 100, 125, 126]
-        for code in modifierCodes {
+    func releaseAllPressedInputs() {
+        for code in pressedKeyCodes.sorted() {
             onKeyEvent?(code, false)
         }
+        pressedKeyCodes.removeAll()
+        activeModifierKeys.removeAll()
         if buttonMask != 0 {
             buttonMask = 0
             onPointerEvent?(lastX, lastY, 0)
         }
+    }
+
+    func releaseAllModifiers() {
+        releaseAllPressedInputs()
     }
 
     private func macKeyCodeToEvdev(_ keyCode: UInt16) -> UInt16? {

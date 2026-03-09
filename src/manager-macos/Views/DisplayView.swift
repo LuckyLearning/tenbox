@@ -22,6 +22,7 @@ struct DisplayView: View {
                 MetalDisplayViewWrapper(
                     renderer: session.renderer,
                     inputHandler: viewModel.inputHandler,
+                    captureManager: viewModel.keyboardCaptureManager,
                     guestCursor: viewModel.guestCursor
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -40,6 +41,14 @@ struct DisplayView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                VStack {
+                    if let bannerKind = viewModel.keyboardCaptureBannerKind {
+                        KeyboardCaptureBanner(kind: bannerKind)
+                    }
+                    Spacer()
+                }
+                .padding(12)
             }
             .onAppear {
                 session.displayViewSize = geo.size
@@ -61,15 +70,22 @@ struct DisplayView: View {
 
 class DisplayViewModel: ObservableObject {
     let inputHandler = InputHandler()
+    let keyboardCaptureManager = KeyboardCaptureManager()
     @Published var guestCursor: NSCursor?
+    @Published var keyboardCaptureBannerKind: KeyboardCaptureBannerKind?
 
     private let clipboardHandler = ClipboardHandler()
     private var resizeTimer: Timer?
     private weak var session: VmSession?
+    private var bannerHideWorkItem: DispatchWorkItem?
+
+    private static var didShowFullCaptureBannerThisRun = false
+    private static var didShowLocalOnlyBannerThisRun = false
 
     func attach(to session: VmSession) {
         self.session = session
         setupInputHandler(client: session.ipcClient)
+        setupKeyboardCapture()
         setupCursorHandler(client: session.ipcClient)
         setupClipboard(client: session.ipcClient)
     }
@@ -77,6 +93,14 @@ class DisplayViewModel: ObservableObject {
     func detach() {
         resizeTimer?.invalidate()
         resizeTimer = nil
+        bannerHideWorkItem?.cancel()
+        bannerHideWorkItem = nil
+        keyboardCaptureBannerKind = nil
+        let hadCapture = keyboardCaptureManager.isCaptureActive
+        keyboardCaptureManager.endCapture()
+        if !hadCapture {
+            inputHandler.releaseAllPressedInputs()
+        }
         clipboardHandler.stopMonitoring()
         session = nil
     }
@@ -121,6 +145,61 @@ class DisplayViewModel: ObservableObject {
             guard let client = client, client.isConnected else { return }
             client.sendScroll(delta: delta)
         }
+    }
+
+    private func setupKeyboardCapture() {
+        keyboardCaptureManager.onKeyDown = { [weak self] keyCode in
+            self?.inputHandler.handleKeyDown(keyCode: keyCode)
+        }
+        keyboardCaptureManager.onKeyUp = { [weak self] keyCode in
+            self?.inputHandler.handleKeyUp(keyCode: keyCode)
+        }
+        keyboardCaptureManager.onFlagsChanged = { [weak self] keyCode, modifierFlags in
+            self?.inputHandler.handleFlagsChanged(keyCode: keyCode, modifierFlags: modifierFlags)
+        }
+        keyboardCaptureManager.onCaptureEnded = { [weak self] in
+            self?.inputHandler.releaseAllPressedInputs()
+        }
+        keyboardCaptureManager.onModeChanged = { [weak self] mode in
+            DispatchQueue.main.async {
+                self?.updateBanner(for: mode)
+            }
+        }
+    }
+
+    private func updateBanner(for mode: KeyboardCaptureMode) {
+        bannerHideWorkItem?.cancel()
+        bannerHideWorkItem = nil
+
+        let bannerKind: KeyboardCaptureBannerKind?
+        switch mode {
+        case .inactive:
+            bannerKind = nil
+        case .localOnly:
+            guard !Self.didShowLocalOnlyBannerThisRun else {
+                keyboardCaptureBannerKind = nil
+                return
+            }
+            Self.didShowLocalOnlyBannerThisRun = true
+            bannerKind = .localOnly
+        case .fullCapture:
+            guard !Self.didShowFullCaptureBannerThisRun else {
+                keyboardCaptureBannerKind = nil
+                return
+            }
+            Self.didShowFullCaptureBannerThisRun = true
+            bannerKind = .fullCapture
+        }
+
+        keyboardCaptureBannerKind = bannerKind
+        guard bannerKind != nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.keyboardCaptureBannerKind = nil
+            self?.bannerHideWorkItem = nil
+        }
+        bannerHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: workItem)
     }
 
     private func setupCursorHandler(client: IpcClientWrapper) {
@@ -247,6 +326,7 @@ class DisplayViewModel: ObservableObject {
 
 class InputMTKView: MTKView {
     var inputHandler: InputHandler?
+    var captureManager: KeyboardCaptureManager?
     var customCursor: NSCursor?
 
     override var acceptsFirstResponder: Bool { true }
@@ -256,25 +336,32 @@ class InputMTKView: MTKView {
     }
 
     override func resignFirstResponder() -> Bool {
-        inputHandler?.releaseAllModifiers()
+        releaseCapturedInputs()
         return super.resignFirstResponder()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self)
         if let win = window {
             NotificationCenter.default.addObserver(
                 self, selector: #selector(windowDidResignKey),
                 name: NSWindow.didResignKeyNotification, object: win)
-            DispatchQueue.main.async { [weak self] in
-                win.makeFirstResponder(self)
-            }
         }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
     }
 
     @objc private func windowDidResignKey(_ note: Notification) {
-        inputHandler?.releaseAllModifiers()
+        releaseCapturedInputs()
+    }
+
+    @objc private func appDidResignActive(_ note: Notification) {
+        releaseCapturedInputs()
     }
 
     deinit {
@@ -282,7 +369,9 @@ class InputMTKView: MTKView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if self == window?.firstResponder {
+        if self == window?.firstResponder,
+           captureManager?.isCaptureActive == true,
+           captureManager?.handlesKeyboardLocally == true {
             if event.type == .keyDown {
                 inputHandler?.handleKeyDown(event)
             }
@@ -292,14 +381,25 @@ class InputMTKView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard captureManager?.isCaptureActive == true else { return }
+        guard captureManager?.handlesKeyboardLocally == true else { return }
         inputHandler?.handleKeyDown(event)
     }
 
     override func keyUp(with event: NSEvent) {
+        guard captureManager?.isCaptureActive == true else { return }
+        guard captureManager?.handlesKeyboardLocally == true else { return }
         inputHandler?.handleKeyUp(event)
     }
 
     override func flagsChanged(with event: NSEvent) {
+        guard let captureManager else { return }
+        guard captureManager.isCaptureActive else { return }
+        if captureManager.isReleaseGesture(keyCode: event.keyCode, modifierFlags: event.modifierFlags) {
+            releaseCapturedInputs()
+            return
+        }
+        guard captureManager.handlesKeyboardLocally else { return }
         inputHandler?.handleFlagsChanged(event)
     }
 
@@ -314,6 +414,7 @@ class InputMTKView: MTKView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        captureManager?.beginCapture()
         window?.makeFirstResponder(self)
         guard let (x, y) = localMousePosition(for: event) else { return }
         inputHandler?.handleMouseButton(button: 0, pressed: true, absX: x, absY: y)
@@ -407,16 +508,22 @@ class InputMTKView: MTKView {
         customCursor = cursor
         window?.invalidateCursorRects(for: self)
     }
+
+    private func releaseCapturedInputs() {
+        captureManager?.endCapture()
+    }
 }
 
 struct MetalDisplayViewWrapper: NSViewRepresentable {
     let renderer: MetalDisplayRenderer?
     let inputHandler: InputHandler?
+    let captureManager: KeyboardCaptureManager?
     let guestCursor: NSCursor?
 
     func makeNSView(context: Context) -> InputMTKView {
         let view = InputMTKView()
         view.inputHandler = inputHandler
+        view.captureManager = captureManager
         view.customCursor = guestCursor
         if let renderer = renderer {
             view.device = renderer.device
@@ -432,8 +539,48 @@ struct MetalDisplayViewWrapper: NSViewRepresentable {
     func updateNSView(_ nsView: InputMTKView, context: Context) {
         nsView.delegate = renderer
         nsView.inputHandler = inputHandler
+        nsView.captureManager = captureManager
         if nsView.customCursor !== guestCursor {
             nsView.updateCustomCursor(guestCursor)
         }
+    }
+}
+
+enum KeyboardCaptureBannerKind {
+    case localOnly
+    case fullCapture
+}
+
+private struct KeyboardCaptureBanner: View {
+    let kind: KeyboardCaptureBannerKind
+
+    private var text: Text {
+        switch kind {
+        case .localOnly:
+            return Text("Keyboard capture is limited. Allow ") +
+                Text("Input Monitoring").bold() +
+                Text(" and ") +
+                Text("Accessibility").bold() +
+                Text(" to block macOS shortcuts.")
+        case .fullCapture:
+            return Text("Keyboard captured. Press ") +
+                Text("Right Option").bold() +
+                Text(" to release.")
+        }
+    }
+
+    private var isWarning: Bool {
+        kind == .localOnly
+    }
+
+    var body: some View {
+        text
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isWarning ? Color.orange.opacity(0.18) : Color.black.opacity(0.72))
+            .foregroundStyle(isWarning ? Color.orange : Color.white)
+            .clipShape(Capsule())
+            .frame(maxWidth: .infinity, alignment: .top)
     }
 }

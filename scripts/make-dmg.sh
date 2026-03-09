@@ -15,12 +15,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/../build"
+ROOT_DIR="$SCRIPT_DIR/.."
+BUILD_DIR="$ROOT_DIR/build"
+
+VERSION=$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")
+if [ -z "$VERSION" ]; then
+    echo "Error: Could not read version from $ROOT_DIR/VERSION"
+    exit 1
+fi
 
 ARCH=$(uname -m)  # arm64 or x86_64
 
 APP_PATH="${1:-$BUILD_DIR/TenBox.app}"
-OUTPUT="${2:-$BUILD_DIR/TenBox_${ARCH}.dmg}"
+OUTPUT="${2:-$BUILD_DIR/TenBox_${VERSION}_${ARCH}.dmg}"
 VOLUME_NAME="TenBox"
 
 if [ ! -d "$APP_PATH" ]; then

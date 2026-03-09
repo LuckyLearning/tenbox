@@ -74,7 +74,7 @@ private struct SelectImagePage: View {
                     if !vm.cachedImages.isEmpty {
                         Section {
                             ForEach(vm.cachedImages) { img in
-                                let tag = img.id + "||cached"
+                                let tag = img.cacheId + "||cached"
                                 SelectableImageRow(image: img, isCached: true, isSelected: vm.selectedImageId == tag) {
                                     vm.selectedImageId = tag
                                 }
@@ -99,7 +99,7 @@ private struct SelectImagePage: View {
                             .padding(.vertical, 6)
                         }
                         ForEach(vm.filteredOnlineImages) { img in
-                            let tag = img.id + "||online"
+                            let tag = img.cacheId + "||online"
                             SelectableImageRow(image: img, isCached: false, isSelected: vm.selectedImageId == tag) {
                                 vm.selectedImageId = tag
                             }
@@ -351,13 +351,13 @@ class CreateVmViewModel: ObservableObject {
         guard let selectedId = selectedImageId else { return nil }
         let parts = selectedId.components(separatedBy: "||")
         guard parts.count == 2 else { return nil }
-        let imageId = parts[0]
+        let cacheId = parts[0]
         let source = parts[1]
         if source == "cached" {
-            return cachedImages.first { $0.id == imageId }
+            return cachedImages.first { $0.cacheId == cacheId }
         } else {
-            return onlineImages.first { $0.id == imageId }
-                ?? cachedImages.first { $0.id == imageId }
+            return onlineImages.first { $0.cacheId == cacheId }
+                ?? cachedImages.first { $0.cacheId == cacheId }
         }
     }
 

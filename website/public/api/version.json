@@ -16,12 +16,12 @@
       "min_os": "Windows 10"
     },
     "macos": {
-      "latest_version": "0.3.3",
-      "release_notes": "修复崩溃问题",
-      "release_date": "2026-03-09",
-      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.3.3_arm64.dmg",
-      "sha256": "67db8406fa6c294a46150768fd842b7210d1f5c38c6f9c16fe59ac929d8ca931",
-      "size": 3023105,
+      "latest_version": "0.3.4",
+      "release_notes": "虚拟机支持捕获 command 等快捷键，方便使用 command + space 切换输入法。",
+      "release_date": "2026-03-10",
+      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.3.4_arm64.dmg",
+      "sha256": "a01b305a270d3d4b36c06f110df7352c204029fe143e3028385a52f14c73c625",
+      "size": 3069347,
       "min_os": "macOS 13.0"
     }
   }

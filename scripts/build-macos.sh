@@ -183,6 +183,7 @@ echo "  -> $APP_DIR"
 # ── Step 4: Create ZIP for Sparkle updates + EdDSA signature ────────────────
 echo ""
 ZIP_PATH="$BUILD_DIR/TenBox_${VERSION}_${ARCH}.zip"
+SIGNATURE_PATH="${ZIP_PATH%.zip}.signature"
 echo "Creating Sparkle update ZIP..."
 ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
 echo "  -> $ZIP_PATH"
@@ -193,6 +194,14 @@ if [ -n "$SIGN_TOOL" ] && [ -x "$SIGN_TOOL" ]; then
     echo "Signing ZIP with Sparkle EdDSA key..."
     ED_SIGNATURE=$("$SIGN_TOOL" "$ZIP_PATH" 2>&1) || true
     echo "$ED_SIGNATURE"
+    ED_SIGNATURE_VALUE=$(printf '%s\n' "$ED_SIGNATURE" | sed -nE 's/.*sparkle:edSignature="([^"]+)".*/\1/p' | head -1)
+    if [ -n "$ED_SIGNATURE_VALUE" ]; then
+        printf '%s\n' "$ED_SIGNATURE_VALUE" > "$SIGNATURE_PATH"
+        echo "  -> Signature saved to $SIGNATURE_PATH"
+    else
+        printf '%s\n' "$ED_SIGNATURE" > "$SIGNATURE_PATH"
+        echo "  -> Saved raw sign_update output to $SIGNATURE_PATH"
+    fi
     echo ""
     echo "Copy the sparkle:edSignature value above into publish.py when releasing."
 else
@@ -210,6 +219,9 @@ echo ""
 echo "Artifacts:"
 echo "  App:  $APP_DIR"
 echo "  ZIP:  $ZIP_PATH"
+if [ -f "$SIGNATURE_PATH" ]; then
+    echo "  Sig:  $SIGNATURE_PATH"
+fi
 echo ""
 echo "To create a DMG for distribution:"
 echo "  $SCRIPT_DIR/make-dmg.sh $APP_DIR"

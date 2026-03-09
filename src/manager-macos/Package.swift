@@ -36,6 +36,7 @@ let package = Package(
                 "Views/CreateVmDialog.swift",
                 "Audio/CoreAudioPlayer.swift",
                 "Input/InputHandler.swift",
+                "Input/KeyboardCaptureManager.swift",
                 "Clipboard/ClipboardHandler.swift",
                 "Bridge/Models.swift",
                 "Bridge/TenBoxBridgeWrapper.swift",

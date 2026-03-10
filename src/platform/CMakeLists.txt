@@ -28,7 +28,6 @@ elseif(APPLE)
         ${CMAKE_SOURCE_DIR}/src/platform/macos/hypervisor/hvf_vcpu.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/macos/hypervisor/hvf_mmio_decode.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/macos/console/posix_console_port.cpp
-        ${CMAKE_SOURCE_DIR}/src/platform/macos/ipc/socket_transport.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/macos/vm_platform_macos.cpp
     )
 

@@ -86,7 +86,11 @@ static std::string HexDecode(const std::string& hex) {
         _connection->Close();
     }
     if (_recvThread.joinable()) {
-        _recvThread.join();
+        if (_recvThread.get_id() == std::this_thread::get_id()) {
+            _recvThread.detach();
+        } else {
+            _recvThread.join();
+        }
     }
     _connection.reset();
     _shmFb.Close();
@@ -621,7 +625,11 @@ static std::string HexDecode(const std::string& hex) {
         _connection->Close();
     }
     if (_recvThread.joinable()) {
-        _recvThread.join();
+        if (_recvThread.get_id() == std::this_thread::get_id()) {
+            _recvThread.detach();
+        } else {
+            _recvThread.join();
+        }
     }
 }
 

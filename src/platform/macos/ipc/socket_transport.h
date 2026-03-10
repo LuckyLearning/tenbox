@@ -15,6 +15,7 @@ public:
     int  PollRead(int timeout_ms) override;
     ssize_t Recv(void* buf, size_t max_len) override;
     void Close() override;
+    int GetNativeFd() const override { return fd_; }
 
 private:
     int fd_ = -1;

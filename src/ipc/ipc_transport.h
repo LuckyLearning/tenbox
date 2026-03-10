@@ -46,6 +46,10 @@ public:
 
     // Flush and close the transport.
     virtual void Close() = 0;
+
+    // Return the underlying OS handle for use with event loops (e.g. libuv).
+    // On Unix this is the file descriptor, on Windows it is cast from HANDLE.
+    virtual int GetNativeFd() const = 0;
 };
 
 // Factory: create the platform-appropriate transport for the runtime

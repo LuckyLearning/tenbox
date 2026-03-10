@@ -2,6 +2,8 @@
 
 #include "common/vm_model.h"
 
+#include <uv.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -70,23 +72,25 @@ private:
     // UDP NAT
     void OnUdpRecv(NatEntry* entry, void* pcb, void* p);
 
-    // Winsock polling
-    bool PollSockets();
+    // Socket I/O handlers
     void HandleTcpReadable(NatEntry* entry);
     void HandleUdpReadable(NatEntry* entry);
     void DrainTcpToGuest(NatEntry* entry);
     void DrainTcpToHost(NatEntry* entry);
+    void UpdateNatPoll(NatEntry* entry);
+    void StopNatPoll(NatEntry* entry);
+    void CloseNatPoll(NatEntry* entry);
+    void OnNatPollEvent(NatEntry* entry, int status, int events);
 
     // ICMP relay
     void HandleIcmpOut(uint32_t src_ip, uint32_t dst_ip,
                        const uint8_t* icmp_data, uint32_t icmp_len);
-    void PollIcmpSocket();
+    void HandleIcmpReadable();
     uintptr_t icmp_socket_ = ~(uintptr_t)0;
+    uv_poll_t icmp_poll_{};
+    bool icmp_poll_active_ = false;
 
-    // Port forwarding
-    struct PfEntry;
-    std::vector<uint16_t> SetupPortForwards();  // returns failed host ports
-    void PollPortForwards();
+    std::vector<uint16_t> SetupPortForwards();
 
     VirtioNetDevice* virtio_net_ = nullptr;
     std::function<void()> irq_callback_;
@@ -119,9 +123,13 @@ private:
         bool     connecting  = false;
         std::vector<uint8_t> pending_data;
         std::vector<uint8_t> pending_to_guest;
-        std::vector<uint8_t> pending_to_host;  // buffered data from guest waiting to send to host
+        std::vector<uint8_t> pending_to_host;
         uint64_t last_active_ms = 0;
-        bool     closed = false; // both sides done, pending removal
+        bool     closed = false;
+        uv_poll_t poll_handle{};
+        bool     poll_inited = false;
+        bool     poll_active = false;
+        bool     poll_closing = false;
     };
     std::vector<std::unique_ptr<NatEntry>> nat_entries_;
     uint16_t next_proxy_port_ = 10000;
@@ -131,28 +139,56 @@ private:
         uint16_t host_port;
         uint16_t guest_port;
         uintptr_t listener = ~(uintptr_t)0;
+        uv_poll_t listener_poll{};
+        bool listener_poll_inited = false;
+        bool listener_poll_active = false;
+        bool listener_poll_closing = false;
         struct Conn {
             uintptr_t host_sock = ~(uintptr_t)0;
             void*     guest_pcb = nullptr;
             bool      guest_connected = false;
             std::vector<uint8_t> pending_to_guest;
             std::vector<uint8_t> pending_to_host;
+            uv_poll_t poll_handle{};
+            bool      poll_inited = false;
+            bool      poll_active = false;
+            bool      poll_closing = false;
         };
         std::list<Conn> conns;
     };
     std::vector<PfEntry> port_forwards_;
     void DrainPfToGuest(PfEntry::Conn& conn);
     void DrainPfToHost(PfEntry::Conn& conn);
+    void UpdatePfConnPoll(PfEntry::Conn& conn);
+    void StopPfConnPoll(PfEntry::Conn& conn);
+    void ClosePfConnPoll(PfEntry::Conn& conn);
+    void OnPfConnPollEvent(PfEntry::Conn* conn, int status, int events);
+    void OnPfListenerReadable(PfEntry* pf);
     void TeardownPortForwards();
     void CheckPendingUpdates();
 
     std::atomic<bool> link_up_{true};
 
+    // libuv event loop (owned by net_thread_)
+    uv_loop_t loop_{};
+    uv_timer_t lwip_timer_{};
+    uv_timer_t cleanup_timer_{};
+    uv_async_t tx_wakeup_{};
+    uv_async_t pf_update_wakeup_{};
+    uv_async_t stop_wakeup_{};
+
+    static void OnLwipTimer(uv_timer_t* handle);
+    static void OnCleanupTimer(uv_timer_t* handle);
+    static void OnTxReady(uv_async_t* handle);
+    static void OnPfUpdateReady(uv_async_t* handle);
+    static void OnStopSignal(uv_async_t* handle);
+    void RescheduleLwipTimer();
+
     std::mutex pf_update_mutex_;
     std::optional<std::vector<PortForward>> pending_pf_update_;
-    bool pf_update_sync_ = false;  // true if caller is waiting for result
+    bool pf_update_sync_ = false;
     std::condition_variable pf_update_cv_;
-    std::vector<uint16_t> pf_update_failed_ports_;  // result: ports that failed to bind
+    std::vector<uint16_t> pf_update_failed_ports_;
 
 public:
     // Network addresses (public for use by lwIP callbacks)

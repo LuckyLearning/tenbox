@@ -56,4 +56,5 @@ target_link_libraries(tenbox_core
         zlibstatic
         libzstd_static
         lwipcore
+        uv_a
 )

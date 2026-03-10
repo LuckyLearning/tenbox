@@ -91,7 +91,8 @@ void NetBackend::TeardownPortForwards() {
             }
         }
     }
-    uv_run(&loop_, UV_RUN_NOWAIT);
+    while (uv_run(&loop_, UV_RUN_NOWAIT) != 0)
+        ;
     for (auto& pf : port_forwards_)
         pf.conns.clear();
     port_forwards_.clear();

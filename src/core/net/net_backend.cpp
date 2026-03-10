@@ -184,7 +184,7 @@ void NetBackend::DetachAndCloseLwipPcb(NatEntry* e) {
 }
 
 void NetBackend::TeardownNatEntry(NatEntry* e) {
-    e->poll.Stop();
+    e->poll.Close();
     CloseHostSocket(e);
     DetachAndCloseLwipPcb(e);
     e->pending_to_host.clear();
@@ -192,7 +192,7 @@ void NetBackend::TeardownNatEntry(NatEntry* e) {
 }
 
 void NetBackend::TeardownPfConn(PfEntry::Conn& c) {
-    c.poll.Stop();
+    c.poll.Close();
     if (c.host_sock != ~(uintptr_t)0) {
         SOCK_CLOSE(static_cast<SocketHandle>(c.host_sock));
         c.host_sock = ~(uintptr_t)0;
@@ -230,7 +230,7 @@ void NetBackend::OnCleanupTimer(uv_timer_t* handle) {
     for (auto& pf : self->port_forwards_) {
         pf.conns.remove_if([](const PfEntry::Conn& c) {
             return c.host_sock == ~(uintptr_t)0 && c.guest_pcb == nullptr
-                && !c.poll.active() && !c.poll.closing();
+                && c.poll.closed();
         });
     }
     // Close stale DNS relay sessions that never received a response
@@ -244,6 +244,10 @@ void NetBackend::OnCleanupTimer(uv_timer_t* handle) {
             }
         }
     }
+    self->dns_sessions_.erase(
+        std::remove_if(self->dns_sessions_.begin(), self->dns_sessions_.end(),
+                        [](const auto& s) { return s->poll.closed(); }),
+        self->dns_sessions_.end());
 }
 
 void NetBackend::OnTxReady(uv_async_t* handle) {
@@ -415,6 +419,11 @@ void NetBackend::NetworkThread() {
     LOG_INFO("Network backend started (gateway 10.0.2.2, guest 10.0.2.15)");
 
     uv_run(&loop_, UV_RUN_DEFAULT);
+
+    // Drain any remaining close callbacks so every handle is fully
+    // detached from the loop before we destroy the owning containers.
+    while (uv_run(&loop_, UV_RUN_NOWAIT) != 0)
+        ;
 
     nat_entries_.clear();
     dns_sessions_.clear();

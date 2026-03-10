@@ -677,21 +677,6 @@ struct EditVmDialog: View {
                     Stepper("CPUs: \(cpuCount)", value: $cpuCount, in: 1...hostMaxCpus)
                     Stepper("Memory: \(memoryGb) GB", value: $memoryGb, in: 1...hostMaxMemoryGb)
                 }
-
-                Section("Paths (read-only)") {
-                    LabeledContent("Kernel") {
-                        Text(vm.kernelPath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                    }
-                    LabeledContent("Disk") {
-                        Text(vm.diskPath.isEmpty ? "None" : vm.diskPath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                    }
-                }
             }
             .formStyle(.grouped)
             .padding(.horizontal)
@@ -706,7 +691,7 @@ struct EditVmDialog: View {
             }
             .padding()
         }
-        .frame(width: 450, height: 380)
+        .frame(width: 450, height: 300)
     }
 
     private func saveVm() {

@@ -144,7 +144,7 @@ void NetBackend::RemoveNatEntry(NatEntry* entry) {
     entry->state = NatState::Closed;
     if (entry->poll.inited() && !entry->poll.closing()) {
         entry->poll.Close();
-    } else if (!entry->poll.inited()) {
+    } else if (!entry->poll.inited() || entry->poll.closed()) {
         nat_entries_.erase(
             std::remove_if(nat_entries_.begin(), nat_entries_.end(),
                             [entry](auto& e) { return e.get() == entry; }),
@@ -193,7 +193,7 @@ void NetBackend::CleanupStaleEntries() {
                 e->poll.Close();
                 e->state = NatState::Closed;
                 ++it;
-            } else if (e->poll.closing()) {
+            } else if (e->poll.closing() && !e->poll.closed()) {
                 e->state = NatState::Closed;
                 ++it;
             } else {

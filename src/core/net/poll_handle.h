@@ -2,19 +2,25 @@
 
 #include <uv.h>
 
-// RAII wrapper around uv_poll_t that tracks init/active/closing state.
-// Eliminates the repeated {poll_handle, poll_inited, poll_active, poll_closing}
-// pattern found in NatEntry and PfEntry::Conn.
+// RAII wrapper around uv_poll_t that tracks init/active/closing/closed state.
+//
+// Because uv_close() is asynchronous, the handle memory must stay alive until
+// the close callback fires.  The destructor therefore must NOT call uv_close();
+// callers must call Close() explicitly and keep the owning object alive until
+// closed() returns true (i.e. until the next uv_run iteration).
 class PollHandle {
 public:
     PollHandle() = default;
     PollHandle(const PollHandle&) = delete;
     PollHandle& operator=(const PollHandle&) = delete;
     PollHandle(PollHandle&& o) noexcept
-        : handle_(o.handle_), inited_(o.inited_), active_(o.active_), closing_(o.closing_) {
+        : handle_(o.handle_), inited_(o.inited_), active_(o.active_),
+          closing_(o.closing_), closed_(o.closed_) {
+        if (inited_ && !closed_) handle_.data = o.handle_.data;
         o.inited_ = false;
         o.active_ = false;
         o.closing_ = false;
+        o.closed_ = false;
     }
     PollHandle& operator=(PollHandle&& o) noexcept {
         if (this != &o) {
@@ -22,9 +28,12 @@ public:
             inited_ = o.inited_;
             active_ = o.active_;
             closing_ = o.closing_;
+            closed_ = o.closed_;
+            if (inited_ && !closed_) handle_.data = o.handle_.data;
             o.inited_ = false;
             o.active_ = false;
             o.closing_ = false;
+            o.closed_ = false;
         }
         return *this;
     }
@@ -53,12 +62,17 @@ public:
         if (closing_ || !inited_) return;
         Stop();
         closing_ = true;
-        uv_close(reinterpret_cast<uv_handle_t*>(&handle_), nullptr);
+        uv_close(reinterpret_cast<uv_handle_t*>(&handle_), [](uv_handle_t* h) {
+            auto* self = reinterpret_cast<PollHandle*>(
+                reinterpret_cast<char*>(h) - offsetof(PollHandle, handle_));
+            self->closed_ = true;
+        });
     }
 
     bool inited() const { return inited_; }
     bool active() const { return active_; }
     bool closing() const { return closing_; }
+    bool closed() const { return closed_; }
     uv_poll_t* raw() { return &handle_; }
 
 private:
@@ -66,4 +80,5 @@ private:
     bool inited_ = false;
     bool active_ = false;
     bool closing_ = false;
+    bool closed_ = false;
 };

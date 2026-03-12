@@ -157,6 +157,14 @@ class AppState: ObservableObject {
         return session
     }
 
+    func activeTabBinding(for vmId: String) -> Binding<Int> {
+        let session = getOrCreateSession(for: vmId)
+        return Binding(
+            get: { session.activeTab },
+            set: { session.activeTab = $0 }
+        )
+    }
+
     func removeSession(for vmId: String) {
         if let session = activeSessions[vmId] {
             session.disconnect()

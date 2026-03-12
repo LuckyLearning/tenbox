@@ -638,9 +638,13 @@ void Vm::SetNetLinkUp(bool up) {
     if (net_backend_) net_backend_->SetLinkUp(up);
 }
 
-std::vector<uint16_t> Vm::UpdatePortForwards(const std::vector<PortForward>& forwards) {
-    if (net_backend_) return net_backend_->UpdatePortForwardsSync(forwards);
-    return {};
+void Vm::UpdatePortForwards(const std::vector<PortForward>& forwards,
+                             PortForwardCallback cb) {
+    if (net_backend_) {
+        net_backend_->UpdatePortForwards(forwards, std::move(cb));
+    } else if (cb) {
+        cb({});
+    }
 }
 
 void Vm::InjectKeyEvent(uint32_t evdev_code, bool pressed) {

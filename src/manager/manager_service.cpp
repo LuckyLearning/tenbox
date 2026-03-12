@@ -3,6 +3,34 @@
 #include "core/vmm/types.h"
 #include "manager/i18n.h"
 
+// Override LOG macros to write to the manager log file instead of
+// stdout/stderr, which are unavailable in a GUI subsystem process.
+extern FILE* GetManagerLogFile();
+#undef LOG_INFO
+#undef LOG_WARN
+#undef LOG_ERROR
+#undef LOG_DEBUG
+#define LOG_INFO(fmt, ...) do { \
+    if (FILE* _f = GetManagerLogFile()) { \
+        fprintf(_f, "[INFO]  " fmt "\r\n", ##__VA_ARGS__); fflush(_f); \
+    } \
+} while (0)
+#define LOG_WARN(fmt, ...) do { \
+    if (FILE* _f = GetManagerLogFile()) { \
+        fprintf(_f, "[WARN]  " fmt "\r\n", ##__VA_ARGS__); fflush(_f); \
+    } \
+} while (0)
+#define LOG_ERROR(fmt, ...) do { \
+    if (FILE* _f = GetManagerLogFile()) { \
+        fprintf(_f, "[ERROR] " fmt "\r\n", ##__VA_ARGS__); fflush(_f); \
+    } \
+} while (0)
+#define LOG_DEBUG(fmt, ...) do { \
+    if (FILE* _f = GetManagerLogFile()) { \
+        fprintf(_f, "[DEBUG] " fmt "\r\n", ##__VA_ARGS__); fflush(_f); \
+    } \
+} while (0)
+
 #include <windows.h>
 
 #include <algorithm>
@@ -852,7 +880,10 @@ bool ManagerService::IsGuestAgentConnected(const std::string& vm_id) const {
 }
 
 bool ManagerService::SendKeyEvent(const std::string& vm_id, uint32_t key_code, bool pressed) {
-    std::lock_guard<std::mutex> lock(vms_mutex_);
+    // try_lock: these are called from WndProc which can be re-entered while
+    // the UI thread holds vms_mutex_ (e.g. WM_ACTIVATEAPP during WaitForSingleObject).
+    std::unique_lock<std::mutex> lock(vms_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return false;
     VmRecord* vm = FindVm(vm_id);
     if (!vm) return false;
 
@@ -869,7 +900,8 @@ bool ManagerService::SendKeyEvent(const std::string& vm_id, uint32_t key_code, b
 
 bool ManagerService::SendPointerEvent(const std::string& vm_id,
                                        int32_t x, int32_t y, uint32_t buttons) {
-    std::lock_guard<std::mutex> lock(vms_mutex_);
+    std::unique_lock<std::mutex> lock(vms_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return false;
     VmRecord* vm = FindVm(vm_id);
     if (!vm) return false;
 
@@ -886,7 +918,8 @@ bool ManagerService::SendPointerEvent(const std::string& vm_id,
 }
 
 bool ManagerService::SendWheelEvent(const std::string& vm_id, int32_t delta) {
-    std::lock_guard<std::mutex> lock(vms_mutex_);
+    std::unique_lock<std::mutex> lock(vms_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return false;
     VmRecord* vm = FindVm(vm_id);
     if (!vm) return false;
 

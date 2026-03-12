@@ -21,6 +21,8 @@ using UiShell = Win32UiShell;
 
 static FILE* g_log_file = nullptr;
 
+FILE* GetManagerLogFile() { return g_log_file; }
+
 static void InitLogFile() {
     wchar_t path[MAX_PATH]{};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path)))
@@ -35,7 +37,7 @@ static void InitLogFile() {
     _wfopen_s(&g_log_file, log_path.c_str(), L"a");
     if (g_log_file) {
         setvbuf(g_log_file, nullptr, _IOLBF, BUFSIZ);
-        
+
         // Write startup marker
         time_t now = time(nullptr);
         struct tm local_tm;
@@ -43,8 +45,8 @@ static void InitLogFile() {
         char time_buf[64];
         strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &local_tm);
         fprintf(g_log_file, "\n=== TenBox Manager started at %s ===\n", time_buf);
-        
-        // Redirect stderr to log file
+
+        // Redirect stderr to log file (best-effort; may be no-op on GUI apps).
         _dup2(_fileno(g_log_file), _fileno(stderr));
     }
 }

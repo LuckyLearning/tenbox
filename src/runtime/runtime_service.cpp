@@ -628,14 +628,13 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
     if (message.channel == ipc::Channel::kControl &&
         message.kind == ipc::Kind::kRequest &&
         message.type == "runtime.update_network") {
-        ipc::Message resp;
-        resp.kind = ipc::Kind::kResponse;
-        resp.channel = ipc::Channel::kControl;
-        resp.type = "runtime.update_network.result";
-        resp.vm_id = vm_id_;
-        resp.request_id = message.request_id;
-
         if (!vm_) {
+            ipc::Message resp;
+            resp.kind = ipc::Kind::kResponse;
+            resp.channel = ipc::Channel::kControl;
+            resp.type = "runtime.update_network.result";
+            resp.vm_id = vm_id_;
+            resp.request_id = message.request_id;
             resp.fields["ok"] = "false";
             resp.fields["error"] = "vm not attached";
             Send(resp);
@@ -647,6 +646,7 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
             vm_->SetNetLinkUp(it_link->second == "true");
         }
 
+        std::vector<PortForward> forwards;
         auto it_count = message.fields.find("forward_count");
         if (it_count != message.fields.end()) {
             int count = 0;
@@ -654,7 +654,6 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
                 it_count->second.data(),
                 it_count->second.data() + it_count->second.size(), count);
             if (ec == std::errc{} && count >= 0) {
-                std::vector<PortForward> forwards;
                 for (int i = 0; i < count; ++i) {
                     auto it_f = message.fields.find("forward_" + std::to_string(i));
                     if (it_f == message.fields.end()) continue;
@@ -665,22 +664,29 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
                                             static_cast<uint16_t>(gp)});
                     }
                 }
-                auto failed_ports = vm_->UpdatePortForwards(forwards);
-                if (!failed_ports.empty()) {
-                    resp.fields["ok"] = "false";
-                    resp.fields["failed_count"] = std::to_string(failed_ports.size());
-                    for (size_t i = 0; i < failed_ports.size(); ++i) {
-                        resp.fields["failed_" + std::to_string(i)] =
-                            std::to_string(failed_ports[i]);
-                    }
-                    Send(resp);
-                    return;
-                }
             }
         }
 
-        resp.fields["ok"] = "true";
-        Send(resp);
+        uint64_t req_id = message.request_id;
+        vm_->UpdatePortForwards(forwards, [this, req_id](std::vector<uint16_t> failed_ports) {
+            ipc::Message resp;
+            resp.kind = ipc::Kind::kResponse;
+            resp.channel = ipc::Channel::kControl;
+            resp.type = "runtime.update_network.result";
+            resp.vm_id = vm_id_;
+            resp.request_id = req_id;
+            if (!failed_ports.empty()) {
+                resp.fields["ok"] = "false";
+                resp.fields["failed_count"] = std::to_string(failed_ports.size());
+                for (size_t i = 0; i < failed_ports.size(); ++i) {
+                    resp.fields["failed_" + std::to_string(i)] =
+                        std::to_string(failed_ports[i]);
+                }
+            } else {
+                resp.fields["ok"] = "true";
+            }
+            Send(resp);
+        });
         return;
     }
 

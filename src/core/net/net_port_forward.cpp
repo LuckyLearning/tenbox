@@ -111,13 +111,13 @@ void NetBackend::TeardownPortForwards() {
 
 void NetBackend::CheckPendingUpdates() {
     std::optional<std::vector<PortForward>> update;
-    bool sync = false;
+    PortForwardCallback cb;
     {
         std::lock_guard<std::mutex> lock(pf_update_mutex_);
         if (pending_pf_update_) {
             update = std::move(pending_pf_update_);
             pending_pf_update_.reset();
-            sync = pf_update_sync_;
+            cb = std::move(pf_update_cb_);
         }
     }
     if (update) {
@@ -133,12 +133,7 @@ void NetBackend::CheckPendingUpdates() {
         LOG_INFO("Port forwards updated (%zu entries, %zu failed)",
                  update->size(), failed.size());
 
-        if (sync) {
-            std::lock_guard<std::mutex> lock(pf_update_mutex_);
-            pf_update_failed_ports_ = std::move(failed);
-            pf_update_sync_ = false;
-            pf_update_cv_.notify_one();
-        }
+        if (cb) cb(std::move(failed));
     }
 }
 

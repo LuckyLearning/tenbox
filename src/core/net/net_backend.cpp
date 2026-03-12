@@ -131,25 +131,14 @@ void NetBackend::SetLinkUp(bool up) {
     link_up_ = up;
 }
 
-void NetBackend::UpdatePortForwards(const std::vector<PortForward>& forwards) {
+void NetBackend::UpdatePortForwards(const std::vector<PortForward>& forwards,
+                                     PortForwardCallback cb) {
     {
         std::lock_guard<std::mutex> lock(pf_update_mutex_);
         pending_pf_update_ = forwards;
-        pf_update_sync_ = false;
+        pf_update_cb_ = std::move(cb);
     }
     if (running_) uv_async_send(&pf_update_wakeup_);
-}
-
-std::vector<uint16_t> NetBackend::UpdatePortForwardsSync(const std::vector<PortForward>& forwards) {
-    std::unique_lock<std::mutex> lock(pf_update_mutex_);
-    pending_pf_update_ = forwards;
-    pf_update_sync_ = true;
-    pf_update_failed_ports_.clear();
-    lock.unlock();
-    if (running_) uv_async_send(&pf_update_wakeup_);
-    lock.lock();
-    pf_update_cv_.wait(lock, [this] { return !pf_update_sync_; });
-    return std::move(pf_update_failed_ports_);
 }
 
 void NetBackend::EnqueueTx(const uint8_t* frame, uint32_t len) {

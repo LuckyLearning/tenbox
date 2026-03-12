@@ -32,11 +32,10 @@ public:
     void Stop();
 
     void SetLinkUp(bool up);
-    void UpdatePortForwards(const std::vector<PortForward>& forwards);
 
-    // Synchronous version that waits for the network thread to apply the update
-    // and returns a list of host ports that failed to bind.
-    std::vector<uint16_t> UpdatePortForwardsSync(const std::vector<PortForward>& forwards);
+    using PortForwardCallback = std::function<void(std::vector<uint16_t> failed_ports)>;
+    void UpdatePortForwards(const std::vector<PortForward>& forwards,
+                            PortForwardCallback cb = nullptr);
 
     // Called from vCPU thread when guest transmits an Ethernet frame.
     void EnqueueTx(const uint8_t* frame, uint32_t len);
@@ -220,9 +219,7 @@ private:
 
     std::mutex pf_update_mutex_;
     std::optional<std::vector<PortForward>> pending_pf_update_;
-    bool pf_update_sync_ = false;
-    std::condition_variable pf_update_cv_;
-    std::vector<uint16_t> pf_update_failed_ports_;
+    PortForwardCallback pf_update_cb_;
 
 public:
     // Network addresses (public for use by lwIP callbacks)

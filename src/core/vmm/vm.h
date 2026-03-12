@@ -66,7 +66,9 @@ public:
     void TriggerPowerButton();
     void InjectConsoleBytes(const uint8_t* data, size_t size);
     void SetNetLinkUp(bool up);
-    std::vector<uint16_t> UpdatePortForwards(const std::vector<PortForward>& forwards);
+    using PortForwardCallback = std::function<void(std::vector<uint16_t> failed_ports)>;
+    void UpdatePortForwards(const std::vector<PortForward>& forwards,
+                            PortForwardCallback cb = nullptr);
     void InjectKeyEvent(uint32_t evdev_code, bool pressed);
     void InjectPointerEvent(int32_t x, int32_t y, uint32_t buttons);
     void InjectWheelEvent(int32_t delta);

@@ -907,9 +907,9 @@ do_convert_qcow2() {
     # Resolve final output path with version if not explicitly specified
     if [ -z "$OUTPUT" ]; then
         if [ -n "$OPENCLAW_VERSION" ]; then
-            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-${OPENCLAW_VERSION}.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-${OPENCLAW_VERSION}-x86_64.qcow2"
         else
-            OUTPUT="$OUTPUT_DIR/rootfs-openclaw.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-x86_64.qcow2"
         fi
     fi
     mkdir -p "$(dirname "$OUTPUT")"

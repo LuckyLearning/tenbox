@@ -807,7 +807,7 @@ do_unmount_image() {
 do_convert_qcow2() {
     if [ -z "$OUTPUT" ]; then
         if [ -n "$OPENCLAW_VERSION" ]; then
-            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-arm64-${OPENCLAW_VERSION}.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-openclaw-${OPENCLAW_VERSION}-arm64.qcow2"
         else
             OUTPUT="$OUTPUT_DIR/rootfs-openclaw-arm64.qcow2"
         fi

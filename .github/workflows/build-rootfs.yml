@@ -27,7 +27,7 @@ on:
         type: boolean
         default: true
       update_images_json:
-        description: "Update images.json (only for copaw/openclaw)"
+        description: "Update images.json after build"
         required: true
         type: boolean
         default: true
@@ -79,7 +79,7 @@ jobs:
             x86_64
 
       - name: Save build metadata
-        if: inputs.update_images_json && (inputs.target == 'rootfs-copaw' || inputs.target == 'rootfs-openclaw')
+        if: inputs.update_images_json
         run: |
           mkdir -p /tmp/meta
           cat > /tmp/meta/x86_64.json <<EOF
@@ -92,7 +92,7 @@ jobs:
           EOF
 
       - name: Upload build metadata
-        if: inputs.update_images_json && (inputs.target == 'rootfs-copaw' || inputs.target == 'rootfs-openclaw')
+        if: inputs.update_images_json
         uses: actions/upload-artifact@v4
         with:
           name: meta-x86_64
@@ -145,7 +145,7 @@ jobs:
             arm64
 
       - name: Save build metadata
-        if: inputs.update_images_json && (inputs.target == 'rootfs-copaw' || inputs.target == 'rootfs-openclaw')
+        if: inputs.update_images_json
         run: |
           mkdir -p /tmp/meta
           cat > /tmp/meta/arm64.json <<EOF
@@ -158,7 +158,7 @@ jobs:
           EOF
 
       - name: Upload build metadata
-        if: inputs.update_images_json && (inputs.target == 'rootfs-copaw' || inputs.target == 'rootfs-openclaw')
+        if: inputs.update_images_json
         uses: actions/upload-artifact@v4
         with:
           name: meta-arm64
@@ -169,7 +169,6 @@ jobs:
     if: >-
       always()
       && inputs.update_images_json
-      && (inputs.target == 'rootfs-copaw' || inputs.target == 'rootfs-openclaw')
       && (needs.build-x86_64.result == 'success' || needs.build-arm64.result == 'success')
     needs: [build-x86_64, build-arm64]
     runs-on: ubuntu-latest

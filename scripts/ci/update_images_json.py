@@ -4,8 +4,8 @@ Usage (called by CI after build jobs finish):
     python3 scripts/ci/update_images_json.py --target <target> --meta-dir <dir>
 
 Supported targets:
-    rootfs-copaw, rootfs-openclaw  — updates rootfs.qcow2 for a specific image
-    initramfs                      — updates initrd.gz for ALL images of matching platform
+    rootfs-chromium, rootfs-copaw, rootfs-openclaw  — updates rootfs.qcow2 for a specific image
+    initramfs                                       — updates initrd.gz for ALL images of matching platform
 
 The meta-dir contains JSON files (one per arch) with:
     { "arch": "x86_64", "filename": "...", "sha256": "...", "size": 123456 }
@@ -23,6 +23,7 @@ from pathlib import Path
 IMAGES_JSON_PATH = Path(__file__).resolve().parent.parent.parent / "website" / "public" / "api" / "images.json"
 
 DISPLAY_NAMES = {
+    "chromium": "Chromium",
     "copaw": "CoPaw",
     "openclaw": "OpenClaw",
 }
@@ -34,6 +35,10 @@ PLATFORM_MAP = {
 
 
 def get_image_id(target: str, arch: str) -> str:
+    """Map target + arch to images.json id / OSS directory name.
+
+    x86_64 omits arch suffix for backward compatibility with existing ids.
+    """
     name = target.removeprefix("rootfs-")
     if arch == "arm64":
         name += "-arm64"
@@ -53,17 +58,17 @@ def get_oss_dir(target: str, arch: str) -> str:
 def extract_version(filename: str, target: str, arch: str) -> str:
     """Extract version from qcow2 filename.
 
+    Filename format: rootfs-<name>[-<version>]-<arch>.qcow2
+
     Examples:
-        rootfs-copaw-0.0.7.qcow2 -> 0.0.7
-        rootfs-copaw-arm64-0.0.7.qcow2 -> 0.0.7
-        rootfs-openclaw-2026.3.11.qcow2 -> 2026.3.11
+        rootfs-copaw-0.0.7-x86_64.qcow2 -> 0.0.7
+        rootfs-copaw-0.0.7-arm64.qcow2 -> 0.0.7
+        rootfs-openclaw-2026.3.11-x86_64.qcow2 -> 2026.3.11
+        rootfs-chromium-x86_64.qcow2 -> ""
     """
-    base = filename.removesuffix(".qcow2")
+    base = filename.removesuffix(f"-{arch}.qcow2")
     name = target.removeprefix("rootfs-")
-    if arch == "arm64":
-        prefix = f"rootfs-{name}-arm64-"
-    else:
-        prefix = f"rootfs-{name}-"
+    prefix = f"rootfs-{name}-"
     if base.startswith(prefix):
         return base[len(prefix):]
     return ""

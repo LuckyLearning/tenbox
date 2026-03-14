@@ -776,9 +776,9 @@ do_convert_qcow2() {
     # Resolve final output path with version if not explicitly specified
     if [ -z "$OUTPUT" ]; then
         if [ -n "$COPAW_VERSION" ]; then
-            OUTPUT="$OUTPUT_DIR/rootfs-copaw-${COPAW_VERSION}.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-copaw-${COPAW_VERSION}-x86_64.qcow2"
         else
-            OUTPUT="$OUTPUT_DIR/rootfs-copaw.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-copaw-x86_64.qcow2"
         fi
     fi
     mkdir -p "$(dirname "$OUTPUT")"

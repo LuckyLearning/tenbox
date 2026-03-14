@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-OUTPUT="$(realpath -m "${OUTPUT_ARG:-$BUILD_DIR/share/rootfs-arm64.qcow2}")"
+OUTPUT="$(realpath -m "${OUTPUT_ARG:-$BUILD_DIR/share/rootfs-chromium-arm64.qcow2}")"
 
 STEPS=(
     "create_image"

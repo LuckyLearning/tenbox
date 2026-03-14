@@ -19,16 +19,23 @@ from alibabacloud_cdn20180510 import models as cdn_models
 from alibabacloud_tea_openapi.models import Config as OpenApiConfig
 
 
-def get_image_id(target: str, arch: str) -> str:
-    """Derive the OSS image directory name from target and arch.
+def get_oss_dir(target: str, arch: str) -> str:
+    """Derive the OSS directory name from target and arch.
+
+    x86_64 omits arch suffix for backward compatibility.
 
     Examples:
-        rootfs-copaw + x86_64  -> copaw
-        rootfs-copaw + arm64   -> copaw-arm64
-        rootfs-openclaw + x86_64 -> openclaw
-        rootfs-openclaw + arm64  -> openclaw-arm64
+        rootfs-copaw + x86_64    -> copaw
+        rootfs-copaw + arm64     -> copaw-arm64
+        rootfs-chromium + x86_64 -> chromium
+        rootfs-chromium + arm64  -> chromium-arm64
+        initramfs + x86_64       -> initramfs
+        initramfs + arm64        -> initramfs-arm64
     """
-    name = target.removeprefix("rootfs-")
+    if target == "initramfs":
+        name = "initramfs"
+    else:
+        name = target.removeprefix("rootfs-")
     if arch == "arm64":
         name += "-arm64"
     return name
@@ -49,9 +56,9 @@ def main():
     bucket = oss2.Bucket(auth, endpoint, os.environ["OSS_BUCKET_NAME"])
 
     images_dir = os.environ.get("OSS_TENBOX_IMAGES_DIR", "tenbox/images").strip("/")
-    image_id = get_image_id(target, arch)
+    oss_dir = get_oss_dir(target, arch)
     filename = Path(qcow2_path).name
-    oss_key = f"{images_dir}/{image_id}/{filename}"
+    oss_key = f"{images_dir}/{oss_dir}/{filename}"
 
     file_size = os.path.getsize(qcow2_path)
     print(f"Uploading {qcow2_path} ({file_size / 1024 / 1024:.1f} MB)")

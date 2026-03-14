@@ -106,7 +106,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-OUTPUT="$(realpath -m "${OUTPUT_ARG:-$BUILD_DIR/share/rootfs-chromium.qcow2}")"
+OUTPUT="$(realpath -m "${OUTPUT_ARG:-$BUILD_DIR/share/rootfs-chromium-x86_64.qcow2}")"
 
 # Step definitions
 STEPS=(

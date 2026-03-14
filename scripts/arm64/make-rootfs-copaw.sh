@@ -681,7 +681,7 @@ do_unmount_image() {
 do_convert_qcow2() {
     if [ -z "$OUTPUT" ]; then
         if [ -n "$COPAW_VERSION" ]; then
-            OUTPUT="$OUTPUT_DIR/rootfs-copaw-arm64-${COPAW_VERSION}.qcow2"
+            OUTPUT="$OUTPUT_DIR/rootfs-copaw-${COPAW_VERSION}-arm64.qcow2"
         else
             OUTPUT="$OUTPUT_DIR/rootfs-copaw-arm64.qcow2"
         fi

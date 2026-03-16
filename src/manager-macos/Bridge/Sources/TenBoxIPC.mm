@@ -544,22 +544,33 @@ static std::string HexDecode(const std::string& hex) {
         }
     }
     else if (msg.type == "clipboard.grab") {
-        auto ti = msg.fields.find("types");
-        if (ti != msg.fields.end()) {
-            IPC_DEBUG_LOG(@"[IPC] << %s clipboard.grab types=%s", GetTimestamp().c_str(), ti->second.c_str());
-            NSMutableArray<NSNumber *>* types = [NSMutableArray array];
-            std::string typesStr = ti->second;
-            size_t pos = 0;
-            while (pos < typesStr.size()) {
-                size_t comma = typesStr.find(',', pos);
-                if (comma == std::string::npos) comma = typesStr.size();
-                std::string numStr = typesStr.substr(pos, comma - pos);
-                if (!numStr.empty()) {
-                    [types addObject:@(static_cast<uint32_t>(std::strtoul(numStr.c_str(), nullptr, 10)))];
+        // Ignore PRIMARY (1) and SECONDARY (2) selections — they are
+        // X11-specific and have no macOS equivalent.  Responding to
+        // PRIMARY grabs causes a ping-pong loop between host and guest.
+        uint32_t selection = 0;
+        auto si = msg.fields.find("selection");
+        if (si != msg.fields.end())
+            selection = static_cast<uint32_t>(std::strtoul(si->second.c_str(), nullptr, 10));
+        if (selection != 0) {
+            IPC_DEBUG_LOG(@"[IPC] << %s clipboard.grab selection=%u (ignored)", GetTimestamp().c_str(), selection);
+        } else {
+            auto ti = msg.fields.find("types");
+            if (ti != msg.fields.end()) {
+                IPC_DEBUG_LOG(@"[IPC] << %s clipboard.grab types=%s", GetTimestamp().c_str(), ti->second.c_str());
+                NSMutableArray<NSNumber *>* types = [NSMutableArray array];
+                std::string typesStr = ti->second;
+                size_t pos = 0;
+                while (pos < typesStr.size()) {
+                    size_t comma = typesStr.find(',', pos);
+                    if (comma == std::string::npos) comma = typesStr.size();
+                    std::string numStr = typesStr.substr(pos, comma - pos);
+                    if (!numStr.empty()) {
+                        [types addObject:@(static_cast<uint32_t>(std::strtoul(numStr.c_str(), nullptr, 10)))];
+                    }
+                    pos = comma + 1;
                 }
-                pos = comma + 1;
+                dispatch_async(dispatch_get_main_queue(), ^{ cgH(types); });
             }
-            dispatch_async(dispatch_get_main_queue(), ^{ cgH(types); });
         }
     }
     else if (msg.type == "clipboard.data") {

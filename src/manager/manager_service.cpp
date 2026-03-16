@@ -1824,6 +1824,21 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
         msg.kind == ipc::Kind::kEvent) {
 
         if (msg.type == "clipboard.grab") {
+            // Only handle CLIPBOARD selection (0); ignore PRIMARY (1) and
+            // SECONDARY (2) which are X11-specific and have no Windows
+            // equivalent. Responding to PRIMARY grabs causes a ping-pong
+            // loop between host and guest clipboard notifications.
+            auto it_sel = msg.fields.find("selection");
+            uint32_t selection = 0;
+            if (it_sel != msg.fields.end()) {
+                selection = static_cast<uint32_t>(std::strtoul(it_sel->second.c_str(), nullptr, 10));
+            }
+            if (selection != 0) {
+                LOG_DEBUG("Ignoring clipboard grab with selection=%u from VM %s",
+                          selection, vm_id.c_str());
+                return;
+            }
+
             auto it_types = msg.fields.find("types");
             if (it_types != msg.fields.end()) {
                 std::vector<uint32_t> types;

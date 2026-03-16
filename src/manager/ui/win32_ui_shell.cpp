@@ -70,8 +70,11 @@ enum CtlId : UINT {
 static constexpr UINT WM_INVOKE = WM_APP + 100;
 static constexpr UINT WM_UPDATE_AVAILABLE = WM_APP + 101;
 
-// Track if we initiated the clipboard change (to avoid echo)
-static bool g_clipboard_from_vm = false;
+// Suppress host→guest clipboard echo after we write VM data to the clipboard.
+// Uses a timestamp instead of a simple bool because EmptyClipboard() +
+// SetClipboardData() can trigger multiple WM_CLIPBOARDUPDATE notifications.
+static ULONGLONG g_clipboard_suppress_until = 0;
+static constexpr ULONGLONG kClipboardSuppressMs = 500;
 
 static constexpr int kDefaultLeftPaneWidth = 280;
 
@@ -1109,7 +1112,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     case WM_CLIPBOARDUPDATE:
-        if (!g_clipboard_from_vm) {
+        if (GetTickCount64() >= g_clipboard_suppress_until) {
             auto vms = shell->manager_.ListVms();
             for (const auto& vm : vms) {
                 if (vm.state == VmPowerState::kRunning) {
@@ -1117,8 +1120,6 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     shell->manager_.SendClipboardGrab(vm.spec.vm_id, types);
                 }
             }
-        } else {
-            g_clipboard_from_vm = false;
         }
         return 0;
 
@@ -1551,5 +1552,9 @@ void Win32UiShell::InvokeOnUiThread(std::function<void()> fn) {
 }
 
 void Win32UiShell::SetClipboardFromVm(bool value) {
-    g_clipboard_from_vm = value;
+    if (value) {
+        g_clipboard_suppress_until = GetTickCount64() + kClipboardSuppressMs;
+    } else {
+        g_clipboard_suppress_until = 0;
+    }
 }

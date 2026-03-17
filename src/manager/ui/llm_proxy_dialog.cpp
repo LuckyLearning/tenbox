@@ -297,9 +297,8 @@ static void LlmRefreshList(LlmDlgData* data) {
             SendMessageW(lv, LVM_SETITEMW, 0, reinterpret_cast<LPARAM>(&si));
         };
 
-        SetSubItem(1, i18n::tr_w(i18n::S::kLlmApiTypeOpenAiCompletions));
-        SetSubItem(2, i18n::to_wide(m.target_url));
-        SetSubItem(3, i18n::to_wide(m.model));
+        SetSubItem(1, i18n::to_wide(m.target_url));
+        SetSubItem(2, i18n::to_wide(m.model));
     }
 }
 
@@ -361,11 +360,10 @@ static INT_PTR CALLBACK LlmDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
             col.pszText = text.data();
             SendMessageW(lv, LVM_INSERTCOLUMNW, idx, reinterpret_cast<LPARAM>(&col));
         };
-        int col_w = list_w / 4;
+        int col_w = list_w / 3;
         AddCol(0, i18n::S::kLlmColAlias, col_w - 20);
-        AddCol(1, i18n::S::kLlmColApiType, col_w + 10);
-        AddCol(2, i18n::S::kLlmColTargetUrl, col_w + 20);
-        AddCol(3, i18n::S::kLlmColModel, col_w - 14);
+        AddCol(1, i18n::S::kLlmColTargetUrl, col_w + 30);
+        AddCol(2, i18n::S::kLlmColModel, col_w - 14);
 
         data->listview = lv;
 

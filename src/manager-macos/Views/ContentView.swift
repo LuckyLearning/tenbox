@@ -6,7 +6,6 @@ struct ContentView: View {
     @State private var showForceStopConfirm = false
     @State private var showSharedFoldersSheet = false
     @State private var showPortForwardsSheet = false
-    @State private var showLlmProxySheet = false
 
     private var selectedVm: VmInfo? {
         guard let vmId = appState.selectedVmId else { return nil }
@@ -102,10 +101,10 @@ struct ContentView: View {
                     }
                     .help("Manage port forwards")
 
-                    Button(action: { showLlmProxySheet = true }) {
+                    Button(action: { appState.showLlmProxySheet = true }) {
                         ToolbarBadgeLabel(
                             title: "LLM Proxy",
-                            systemImage: "brain",
+                            systemImage: "key.viewfinder",
                             count: appState.llmMappings.count
                         )
                     }
@@ -142,7 +141,7 @@ struct ContentView: View {
                 PortForwardsSheet(vmId: vm.id)
             }
         }
-        .sheet(isPresented: $showLlmProxySheet) {
+        .sheet(isPresented: $appState.showLlmProxySheet) {
             LlmProxySheet()
         }
         .alert("Delete VM", isPresented: $showDeleteConfirm) {
@@ -185,6 +184,16 @@ struct ContentView: View {
             }
         } message: {
             Text(appState.startVmError ?? "")
+        }
+        .onChange(of: appState.portForwardError) { error in
+            guard let msg = error else { return }
+            appState.portForwardError = nil
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Port Forward Error"
+            alert.informativeText = msg
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
         }
     }
 

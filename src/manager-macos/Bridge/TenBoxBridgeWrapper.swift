@@ -118,7 +118,7 @@ class TenBoxBridgeWrapper {
         objcGf.guestPort = gf.guestPort
         objcGf.hostAddr = gf.hostAddr
         objcGf.hostPort = gf.hostPort
-        return bridge.addGuestForward(objcGf, toVm: vmId)
+        return bridge.add(objcGf, toVm: vmId)
     }
 
     func removeGuestForward(guestIp: String, guestPort: UInt16, fromVm vmId: String) -> Bool {

@@ -789,7 +789,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             wchar_t buf[1024]{};
             GetWindowTextW(p->console_tab.input_handle(), buf, static_cast<int>(std::size(buf)));
             std::string input = i18n::wide_to_utf8(buf);
-            if (!input.empty() && p->selected_index >= 0 &&
+            if (p->selected_index >= 0 &&
                 p->selected_index < static_cast<int>(p->records.size())) {
                 std::string vm_id = p->records[p->selected_index].spec.vm_id;
                 std::string to_send = input + "\n";

@@ -1,5 +1,4 @@
 #import "TenBoxBridge.h"
-#include "common/vm_model.h"
 #include "ipc/unix_socket.h"
 #include "ipc/protocol_v1.h"
 #include <string>
@@ -81,6 +80,11 @@ static NSString* GetVmsDir() {
 // ── TBPortForward ──────────────────────────────────────────────────
 
 @implementation TBPortForward
+@end
+
+// ── TBGuestForward ──────────────────────────────────────────────────
+
+@implementation TBGuestForward
 @end
 
 // ── TBSharedFolder ──────────────────────────────────────────────────
@@ -357,36 +361,8 @@ static NSString* GetVmsDir() {
         [args addObject:@"--net"];
     }
 
-    NSArray* portForwards = config[@"port_forwards"];
-    if ([portForwards isKindOfClass:[NSArray class]]) {
-        for (NSDictionary* pf in portForwards) {
-            NSNumber* hp = pf[@"host_port"];
-            NSNumber* gp = pf[@"guest_port"];
-            if (hp && gp) {
-                [args addObject:@"--hostfwd"];
-                NSString* hip = pf[@"host_ip"];
-                if (!hip) hip = [pf[@"lan"] boolValue] ? @"0.0.0.0" : @"127.0.0.1";
-                NSString* gip = pf[@"guest_ip"] ?: @"";
-                [args addObject:[NSString stringWithFormat:@"tcp:%@:%u-%@:%u",
-                    hip, [hp unsignedShortValue], gip, [gp unsignedShortValue]]];
-            }
-        }
-    }
-
-    NSArray* guestForwards = config[@"guest_forwards"];
-    if ([guestForwards isKindOfClass:[NSArray class]]) {
-        for (NSDictionary* gf in guestForwards) {
-            NSString* gip = gf[@"guest_ip"];
-            NSNumber* gp = gf[@"guest_port"];
-            NSNumber* hp = gf[@"host_port"];
-            if (gip && gp && hp) {
-                [args addObject:@"--guestfwd"];
-                NSString* haddr = gf[@"host_addr"] ?: @"127.0.0.1";
-                [args addObject:[NSString stringWithFormat:@"guestfwd:%@:%u-%@:%u",
-                    gip, [gp unsignedShortValue], haddr, [hp unsignedShortValue]]];
-            }
-        }
-    }
+    // Port forwards and guest forwards are sent via IPC after the VM
+    // reaches the "running" state so that bind failures can be reported.
 
     NSMutableArray<NSURL *>* scopedUrls = [NSMutableArray array];
     NSArray* sharedFolders = config[@"shared_folders"];
@@ -848,48 +824,6 @@ static NSDictionary* PortForwardToJson(TBPortForward* pf) {
     return d;
 }
 
-static void SendNetworkUpdate(const std::string& vmIdStr,
-                              NSArray* pfJsonArray,
-                              NSArray* gfJsonArray,
-                              BOOL netEnabled) {
-    std::lock_guard<std::mutex> lock(g_server_mutex);
-    auto it = g_accepted.find(vmIdStr);
-    if (it == g_accepted.end() || !it->second || !it->second->IsValid()) return;
-
-    ipc::Message msg;
-    msg.channel = ipc::Channel::kControl;
-    msg.kind = ipc::Kind::kRequest;
-    msg.type = "runtime.update_network";
-    msg.fields["link_up"] = netEnabled ? "true" : "false";
-    msg.fields["forward_count"] = std::to_string(pfJsonArray.count);
-    for (NSUInteger i = 0; i < pfJsonArray.count; ++i) {
-        NSDictionary* pf = pfJsonArray[i];
-        PortForward fwd;
-        fwd.host_port = [pf[@"host_port"] unsignedShortValue];
-        fwd.guest_port = [pf[@"guest_port"] unsignedShortValue];
-        NSString* hip = pf[@"host_ip"];
-        if (hip) fwd.host_ip = hip.UTF8String;
-        else if ([pf[@"lan"] boolValue]) fwd.host_ip = "0.0.0.0";
-        NSString* gip = pf[@"guest_ip"];
-        if (gip) fwd.guest_ip = gip.UTF8String;
-        msg.fields["forward_" + std::to_string(i)] = fwd.ToHostfwd();
-    }
-    if (gfJsonArray.count > 0) {
-        msg.fields["guestfwd_count"] = std::to_string(gfJsonArray.count);
-        for (NSUInteger i = 0; i < gfJsonArray.count; ++i) {
-            NSDictionary* gf = gfJsonArray[i];
-            GuestForward fwd;
-            GuestForward::Ip4FromString([gf[@"guest_ip"] UTF8String], fwd.guest_ip);
-            fwd.guest_port = [gf[@"guest_port"] unsignedShortValue];
-            NSString* haddr = gf[@"host_addr"];
-            if (haddr) fwd.host_addr = haddr.UTF8String;
-            fwd.host_port = [gf[@"host_port"] unsignedShortValue];
-            msg.fields["guestfwd_" + std::to_string(i)] = fwd.ToGuestfwd();
-        }
-    }
-    it->second->Send(ipc::Encode(msg));
-}
-
 - (BOOL)addPortForward:(TBPortForward *)pf toVm:(NSString *)vmId {
     NSString* vmDir = [GetVmsDir() stringByAppendingPathComponent:vmId];
     NSString* configPath = [vmDir stringByAppendingPathComponent:@"config.json"];
@@ -912,10 +846,6 @@ static void SendNetworkUpdate(const std::string& vmIdStr,
                                                      options:NSJSONWritingPrettyPrinted
                                                        error:nil];
     if (![newData writeToFile:configPath atomically:YES]) return NO;
-
-    BOOL netEnabled = [config[@"net_enabled"] boolValue];
-    NSArray* gfArray = config[@"guest_forwards"] ?: @[];
-    SendNetworkUpdate(vmId.UTF8String, pfArray, gfArray, netEnabled);
     return YES;
 }
 
@@ -943,10 +873,6 @@ static void SendNetworkUpdate(const std::string& vmIdStr,
                                                      options:NSJSONWritingPrettyPrinted
                                                        error:nil];
     if (![newData writeToFile:configPath atomically:YES]) return NO;
-
-    BOOL netEnabled = [config[@"net_enabled"] boolValue];
-    NSArray* gfArray = config[@"guest_forwards"] ?: @[];
-    SendNetworkUpdate(vmId.UTF8String, pfArray, gfArray, netEnabled);
     return YES;
 }
 
@@ -1019,10 +945,6 @@ static NSDictionary* GuestForwardToJson(TBGuestForward* gf) {
                                                      options:NSJSONWritingPrettyPrinted
                                                        error:nil];
     if (![newData writeToFile:configPath atomically:YES]) return NO;
-
-    BOOL netEnabled = [config[@"net_enabled"] boolValue];
-    NSArray* pfArray = config[@"port_forwards"] ?: @[];
-    SendNetworkUpdate(vmId.UTF8String, pfArray, gfArray, netEnabled);
     return YES;
 }
 
@@ -1052,10 +974,6 @@ static NSDictionary* GuestForwardToJson(TBGuestForward* gf) {
                                                      options:NSJSONWritingPrettyPrinted
                                                        error:nil];
     if (![newData writeToFile:configPath atomically:YES]) return NO;
-
-    BOOL netEnabled = [config[@"net_enabled"] boolValue];
-    NSArray* pfArray = config[@"port_forwards"] ?: @[];
-    SendNetworkUpdate(vmId.UTF8String, pfArray, gfArray, netEnabled);
     return YES;
 }
 

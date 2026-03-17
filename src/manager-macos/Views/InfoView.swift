@@ -356,7 +356,7 @@ struct PortForwardsSheet: View {
                 if vm.portForwards.isEmpty {
                     Text("No port forwards")
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 60)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         ForEach(vm.portForwards) { pf in
@@ -381,7 +381,6 @@ struct PortForwardsSheet: View {
                             }
                         }
                     }
-                    .frame(minHeight: 60)
                 }
 
                 Divider()
@@ -404,7 +403,7 @@ struct PortForwardsSheet: View {
                 if vm.guestForwards.isEmpty {
                     Text("No guest forwards")
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 60)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         ForEach(vm.guestForwards) { gf in
@@ -428,7 +427,6 @@ struct PortForwardsSheet: View {
                             }
                         }
                     }
-                    .frame(minHeight: 60)
                 }
             }
 

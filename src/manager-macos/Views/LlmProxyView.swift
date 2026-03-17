@@ -33,7 +33,7 @@ struct LlmProxySheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(mapping.alias)
                                     .fontWeight(.medium)
-                                Text("\(mapping.apiType.displayName) · \(mapping.model)")
+                                Text("\(mapping.targetUrl) · \(mapping.model)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -132,7 +132,7 @@ struct EditLlmMappingSheet: View {
                         Text(type.displayName).tag(type)
                     }
                 }
-                TextField("Target URL", text: $targetUrl, prompt: Text("https://api.openai.com/v1"))
+                TextField("Base URL", text: $targetUrl, prompt: Text("https://api.openai.com/v1"))
                     .disableAutocorrection(true)
                 TextField("API Key", text: $apiKey, prompt: Text("sk-..."))
                     .disableAutocorrection(true)

@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import Sparkle
+import IOKit.pwr_mgt
 
 let kTenBoxVersion: String = {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
@@ -107,6 +108,11 @@ struct TenBoxApp: App {
                     appDelegate.appState.showCreateVmDialog = true
                 }
                 .keyboardShortcut("n")
+                Divider()
+                Button("LLM Proxy...") {
+                    appDelegate.appState.showLlmProxySheet = true
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .toolbar) { }
             CommandGroup(replacing: .sidebar) { }
@@ -120,8 +126,14 @@ class AppState: ObservableObject {
     @Published var showCreateVmDialog = false
     @Published var showEditVmDialog = false
     @Published var showKeyboardCapturePermissionAlert = false
+    @Published var showLlmProxySheet = false
     @Published var startVmError: String?
+    @Published var portForwardError: String?
     @Published var llmMappings: [LlmModelMapping] = []
+
+    let llmProxy = LlmProxyService()
+    private static let kLlmGuestIp = "10.0.2.3"
+    private static let kLlmGuestPort: UInt16 = 80
 
     private var bridge = TenBoxBridgeWrapper()
     let clipboardHandler = ClipboardHandler()
@@ -129,10 +141,12 @@ class AppState: ObservableObject {
     private var sessionCancellables: [String: AnyCancellable] = [:]
     private var stateObserver: NSObjectProtocol?
     private var pendingVmStartId: String?
+    private var sleepAssertionID: IOPMAssertionID = IOPMAssertionID(0)
 
     init() {
         refreshVmList()
         loadLlmMappings()
+        startLlmProxyIfNeeded()
         setupClipboard()
         stateObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("TenBoxVmStateChanged"),
@@ -140,16 +154,15 @@ class AppState: ObservableObject {
         ) { [weak self] note in
             guard let self = self else { return }
             self.refreshVmList()
+            self.updateSleepAssertion()
             if let vmId = note.object as? String {
                 let newState = self.vms.first(where: { $0.id == vmId })?.state ?? .stopped
                 if newState == .rebooting {
                     self.removeSession(for: vmId)
                 } else if newState == .stopped || newState == .crashed {
-                    // Disconnect but keep session so console output stays visible
                     self.activeSessions[vmId]?.disconnect()
                 } else if newState == .running {
                     let session = self.getOrCreateSession(for: vmId)
-                    // Clear stale console output from the previous run before reconnecting
                     session.consoleText = ""
                     session.connectIfNeeded()
                 }
@@ -173,9 +186,41 @@ class AppState: ObservableObject {
 
     deinit {
         clipboardHandler.stopMonitoring()
+        releaseSleepAssertion()
         if let obs = stateObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+    }
+
+    // MARK: - Sleep prevention
+
+    private func updateSleepAssertion() {
+        let hasRunningVm = vms.contains { $0.state == .running || $0.state == .rebooting }
+        if hasRunningVm {
+            acquireSleepAssertion()
+        } else {
+            releaseSleepAssertion()
+        }
+    }
+
+    private func acquireSleepAssertion() {
+        guard sleepAssertionID == IOPMAssertionID(0) else { return }
+        let reason = "TenBox VM is running" as CFString
+        let ret = IOPMAssertionCreateWithName(
+            kIOPMAssertPreventUserIdleSystemSleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason,
+            &sleepAssertionID
+        )
+        if ret != kIOReturnSuccess {
+            sleepAssertionID = IOPMAssertionID(0)
+        }
+    }
+
+    private func releaseSleepAssertion() {
+        guard sleepAssertionID != IOPMAssertionID(0) else { return }
+        IOPMAssertionRelease(sleepAssertionID)
+        sleepAssertionID = IOPMAssertionID(0)
     }
 
     func getOrCreateSession(for vmId: String) -> VmSession {
@@ -185,6 +230,22 @@ class AppState: ObservableObject {
         let session = VmSession(vmId: vmId, clipboardHandler: clipboardHandler)
         if let vm = vms.first(where: { $0.id == vmId }) {
             session.displayScale = vm.displayScale
+        }
+        session.onRuntimeRunning = { [weak self] in
+            self?.sendNetworkUpdateIfRunning(vmId: vmId)
+        }
+        session.ipcClient.onPortForwardError = { [weak self] failedPorts in
+            guard let self = self, !failedPorts.isEmpty else { return }
+            let vm = self.vms.first(where: { $0.id == vmId })
+            let mappings = failedPorts.map { hostPort -> String in
+                if let hp = UInt16(hostPort),
+                   let pf = vm?.portForwards.first(where: { $0.hostPort == hp }) {
+                    return "\(hp) → \(pf.guestPort)"
+                }
+                return hostPort
+            }
+            let list = mappings.map { "  • \($0)" }.joined(separator: "\n")
+            self.portForwardError = "The following port forward(s) failed to bind:\n\(list)\n\nThe host port(s) may already be in use."
         }
         sessionCancellables[vmId] = session.objectWillChange
             .receive(on: RunLoop.main)
@@ -244,9 +305,9 @@ class AppState: ObservableObject {
         let ok = bridge.startVm(id: id)
         refreshVmList()
         if ok {
-            if let session = activeSessions[id] {
-                session.connectIfNeeded()
-            }
+            let session = getOrCreateSession(for: id)
+            session.consoleText = ""
+            session.connectIfNeeded()
         } else {
             let vmName = vms.first(where: { $0.id == id })?.name ?? id
             startVmError = "Failed to start VM \"\(vmName)\". The runtime binary may be missing or the VM configuration is invalid."
@@ -323,23 +384,25 @@ class AppState: ObservableObject {
     func addPortForward(_ pf: PortForward, toVm vmId: String) {
         _ = bridge.addPortForward(pf, toVm: vmId)
         refreshVmList()
-        sendPortForwardsUpdateIfRunning(vmId: vmId)
+        sendNetworkUpdateIfRunning(vmId: vmId)
     }
 
     func removePortForward(hostPort: UInt16, fromVm vmId: String) {
         _ = bridge.removePortForward(hostPort: hostPort, fromVm: vmId)
         refreshVmList()
-        sendPortForwardsUpdateIfRunning(vmId: vmId)
+        sendNetworkUpdateIfRunning(vmId: vmId)
     }
 
     func addGuestForward(_ gf: GuestForward, toVm vmId: String) {
         _ = bridge.addGuestForward(gf, toVm: vmId)
         refreshVmList()
+        sendNetworkUpdateIfRunning(vmId: vmId)
     }
 
     func removeGuestForward(guestIp: String, guestPort: UInt16, fromVm vmId: String) {
         _ = bridge.removeGuestForward(guestIp: guestIp, guestPort: guestPort, fromVm: vmId)
         refreshVmList()
+        sendNetworkUpdateIfRunning(vmId: vmId)
     }
 
     // MARK: - LLM Proxy settings
@@ -396,11 +459,13 @@ class AppState: ObservableObject {
         guard !llmMappings.contains(where: { $0.alias == mapping.alias }) else { return }
         llmMappings.append(mapping)
         saveLlmMappings()
+        syncLlmProxy()
     }
 
     func removeLlmMapping(alias: String) {
         llmMappings.removeAll { $0.alias == alias }
         saveLlmMappings()
+        syncLlmProxy()
     }
 
     func updateLlmMapping(originalAlias: String, mapping: LlmModelMapping) {
@@ -408,6 +473,25 @@ class AppState: ObservableObject {
             llmMappings[idx] = mapping
         }
         saveLlmMappings()
+        syncLlmProxy()
+    }
+
+    private func startLlmProxyIfNeeded() {
+        guard !llmMappings.isEmpty else { return }
+        llmProxy.updateMappings(llmMappings)
+        _ = llmProxy.start()
+    }
+
+    private func syncLlmProxy() {
+        llmProxy.updateMappings(llmMappings)
+        if llmMappings.isEmpty {
+            llmProxy.stop()
+        } else if llmProxy.listeningPort == 0 {
+            _ = llmProxy.start()
+        }
+        for vm in vms where vm.state == .running {
+            sendNetworkUpdateIfRunning(vmId: vm.id)
+        }
     }
 
     private func sendSharedFoldersUpdateIfRunning(vmId: String) {
@@ -419,13 +503,23 @@ class AppState: ObservableObject {
         session.ipcClient.sendSharedFoldersUpdate(entries: entries)
     }
 
-    private func sendPortForwardsUpdateIfRunning(vmId: String) {
+    func sendNetworkUpdateIfRunning(vmId: String) {
         guard let session = activeSessions[vmId], session.ipcClient.isConnected,
               let vm = vms.first(where: { $0.id == vmId }) else { return }
-        let entries = vm.portForwards.map { pf in
+        let hostfwdEntries = vm.portForwards.map { pf in
             "tcp:\(pf.effectiveHostIp):\(pf.hostPort)-\(pf.effectiveGuestIp):\(pf.guestPort)"
         }
-        session.ipcClient.sendPortForwardsUpdate(entries: entries, netEnabled: vm.netEnabled)
+        var guestfwdEntries = vm.guestForwards.map { gf in
+            "guestfwd:\(gf.guestIp):\(gf.guestPort)-\(gf.effectiveHostAddr):\(gf.hostPort)"
+        }
+        let proxyPort = llmProxy.listeningPort
+        if proxyPort > 0 {
+            guestfwdEntries.append(
+                "guestfwd:\(Self.kLlmGuestIp):\(Self.kLlmGuestPort)-127.0.0.1:\(proxyPort)")
+        }
+        session.ipcClient.sendNetworkUpdate(
+            hostfwdEntries: hostfwdEntries, guestfwdEntries: guestfwdEntries,
+            netEnabled: vm.netEnabled)
     }
 
 }
@@ -443,6 +537,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        appState.llmProxy.stop()
         bridge.stopAllVms()
     }
 }

@@ -1,18 +1,18 @@
 {
-  "latest_version": "0.5.1",
+  "latest_version": "0.5.5",
   "min_supported_version": "0.1.0",
-  "release_notes": "配置LLM代理超时时间为5分钟",
-  "release_date": "2026-03-18",
-  "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi",
-  "sha256": "c7daededcdb6d4a95789ba0b62ec4e4a6bd3381fedcc7f5a7585cc945678e5e7",
+  "release_notes": "完善磁盘读取功能",
+  "release_date": "2026-03-19",
+  "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.5.msi",
+  "sha256": "85191054d883684f89f634e412edd07f2f8cc9fc5b7ccb8406bdd952bff66f99",
   "platforms": {
     "windows": {
-      "latest_version": "0.5.1",
-      "release_notes": "配置LLM代理超时时间为5分钟",
-      "release_date": "2026-03-18",
-      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi",
-      "sha256": "c7daededcdb6d4a95789ba0b62ec4e4a6bd3381fedcc7f5a7585cc945678e5e7",
-      "size": 3223552,
+      "latest_version": "0.5.5",
+      "release_notes": "完善磁盘读取功能",
+      "release_date": "2026-03-19",
+      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.5.msi",
+      "sha256": "85191054d883684f89f634e412edd07f2f8cc9fc5b7ccb8406bdd952bff66f99",
+      "size": 3231744,
       "min_os": "Windows 10"
     },
     "macos": {

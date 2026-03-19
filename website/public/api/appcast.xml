@@ -6,21 +6,21 @@
     <description>TenBox Updates</description>
     <language>zh-CN</language>
     <item>
-      <title>Version 0.5.1</title>
+      <title>Version 0.5.5</title>
       <description><![CDATA[
         <ul>
-          <li>配置LLM代理超时时间为5分钟</li>
+          <li>完善磁盘读取功能</li>
         </ul>
       ]]></description>
-      <pubDate>Wed, 18 Mar 2026 00:00:00 -0000</pubDate>
+      <pubDate>Thu, 19 Mar 2026 00:00:00 -0000</pubDate>
       <sparkle:minimumSystemVersion>10</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi"
+        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.5.msi"
         sparkle:os="windows"
-        sparkle:version="0.5.1"
-        sparkle:shortVersionString="0.5.1"
+        sparkle:version="0.5.5"
+        sparkle:shortVersionString="0.5.5"
         sparkle:installerArguments="/passive"
-        length="3223552"
+        length="3231744"
         type="application/octet-stream"
       />
     </item>

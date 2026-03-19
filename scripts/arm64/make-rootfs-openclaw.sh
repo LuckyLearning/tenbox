@@ -608,10 +608,10 @@ Environment=OPENCLAW_NO_RESPAWN=1
 Environment=DISPLAY=:0
 OVERRIDE
 
-    chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
-
     mkdir -p "\$UNIT_DIR/default.target.wants"
     ln -sf ../openclaw-gateway.service "\$UNIT_DIR/default.target.wants/openclaw-gateway.service"
+
+    chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
 fi
 
 mkdir -p /var/lib/systemd/linger

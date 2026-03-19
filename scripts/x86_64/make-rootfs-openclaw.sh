@@ -703,11 +703,11 @@ Environment=OPENCLAW_NO_RESPAWN=1
 Environment=DISPLAY=:0
 OVERRIDE
 
-    chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
-
     # Enable the service (create symlink since systemctl --user is unavailable in chroot)
     mkdir -p "\$UNIT_DIR/default.target.wants"
     ln -sf ../openclaw-gateway.service "\$UNIT_DIR/default.target.wants/openclaw-gateway.service"
+
+    chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
 fi
 
 # Enable lingering so gateway starts at boot even before user login
